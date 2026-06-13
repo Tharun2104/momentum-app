@@ -1,52 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../services/api_service.dart';
+import '../features/run/presentation/run_history_screen.dart';
+import '../features/run/presentation/run_screen.dart';
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, this.apiService});
-
-  final ApiService? apiService;
-
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
-
-class _HomeScreenState extends State<HomeScreen> {
-  late final ApiService _apiService = widget.apiService ?? ApiService();
-  bool _isLoading = false;
-  String? _message;
-  String? _error;
-
-  Future<void> _checkBackend() async {
-    setState(() {
-      _isLoading = true;
-      _message = null;
-      _error = null;
-    });
-
-    try {
-      final message = await _apiService.checkHealth();
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _message = message;
-      });
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _error = error.toString();
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
-  }
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -62,27 +20,38 @@ class _HomeScreenState extends State<HomeScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'Backend Health',
-                  style: Theme.of(context).textTheme.headlineSmall,
+                  'Momentum',
+                  style: Theme.of(context).textTheme.headlineMedium,
+                  textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 8),
+                Text(
+                  'Track your run with focus',
+                  style: Theme.of(context).textTheme.bodyLarge,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 32),
                 FilledButton(
-                  onPressed: _isLoading ? null : _checkBackend,
-                  child: const Text('Check Backend'),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const RunScreen(),
+                      ),
+                    );
+                  },
+                  child: const Text('Run'),
                 ),
-                const SizedBox(height: 24),
-                if (_isLoading)
-                  const Center(child: CircularProgressIndicator())
-                else if (_message != null)
-                  Text(_message!, key: const Key('health-message'))
-                else if (_error != null)
-                  Text(
-                    _error!,
-                    key: const Key('health-error'),
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
-                  )
-                else
-                  const Text('No backend check has run yet.'),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const RunHistoryScreen(),
+                      ),
+                    );
+                  },
+                  child: const Text('History'),
+                ),
               ],
             ),
           ),

@@ -1,9 +1,11 @@
 import 'package:http/http.dart' as http;
 
+import '../core/config/app_config.dart';
+
 class ApiService {
   ApiService({http.Client? client, String? baseUrl})
     : _client = client ?? http.Client(),
-      _baseUrl = baseUrl ?? 'http://localhost:8080';
+      _baseUrl = baseUrl ?? AppConfig.baseUrl;
 
   final http.Client _client;
   final String _baseUrl;
