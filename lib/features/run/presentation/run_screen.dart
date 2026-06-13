@@ -14,10 +14,62 @@ import 'run_detail_screen.dart';
 import 'run_formatters.dart';
 import 'run_history_screen.dart';
 
+enum GpsSignalStatus { dead, searching, weak, good }
+
+enum RunTrackingState { idle, running, paused, saving, completed }
+
+abstract class RunLocationClient {
+  Future<bool> isLocationServiceEnabled();
+
+  Future<LocationPermission> checkPermission();
+
+  Future<LocationPermission> requestPermission();
+
+  Future<Position> getCurrentPosition({required LocationSettings settings});
+
+  Stream<Position> getPositionStream({required LocationSettings settings});
+}
+
+class GeolocatorRunLocationClient implements RunLocationClient {
+  const GeolocatorRunLocationClient();
+
+  @override
+  Future<bool> isLocationServiceEnabled() {
+    return Geolocator.isLocationServiceEnabled();
+  }
+
+  @override
+  Future<LocationPermission> checkPermission() {
+    return Geolocator.checkPermission();
+  }
+
+  @override
+  Future<LocationPermission> requestPermission() {
+    return Geolocator.requestPermission();
+  }
+
+  @override
+  Future<Position> getCurrentPosition({required LocationSettings settings}) {
+    return Geolocator.getCurrentPosition(locationSettings: settings);
+  }
+
+  @override
+  Stream<Position> getPositionStream({required LocationSettings settings}) {
+    return Geolocator.getPositionStream(locationSettings: settings);
+  }
+}
+
 class RunScreen extends StatefulWidget {
-  const RunScreen({super.key, this.runApiService});
+  const RunScreen({
+    super.key,
+    this.runApiService,
+    this.locationClient,
+    this.now,
+  });
 
   final RunApiService? runApiService;
+  final RunLocationClient? locationClient;
+  final DateTime Function()? now;
 
   @override
   State<RunScreen> createState() => _RunScreenState();
@@ -26,25 +78,54 @@ class RunScreen extends StatefulWidget {
 class _RunScreenState extends State<RunScreen> {
   static const double _maximumAcceptedAccuracyMeters = 20;
   static const double _minimumPointDistanceMeters = 3;
+  static const double _maximumRunningSpeedMetersPerSecond = 8;
   static const int _minimumDurationSeconds = 5;
 
   late final RunApiService _runApiService =
       widget.runApiService ?? RunApiService();
+  late final RunLocationClient _locationClient =
+      widget.locationClient ?? const GeolocatorRunLocationClient();
+  late final DateTime Function() _now =
+      widget.now ?? () => DateTime.now().toUtc();
 
   final List<RoutePointRequest> _routePoints = [];
 
   Timer? _timer;
   StreamSubscription<Position>? _positionSubscription;
   DateTime? _startTime;
+  DateTime? _lastResumeTime;
+  Duration _activeDuration = Duration.zero;
   int _elapsedSeconds = 0;
   double _distanceMeters = 0;
   double? _latestAccuracyMeters;
-  bool _isRunning = false;
-  bool _isSaving = false;
+  RunTrackingState _trackingState = RunTrackingState.idle;
   bool _isWebTestMode = false;
-  String _gpsStatus = 'GPS idle';
+  GpsSignalStatus _gpsSignalStatus = kIsWeb
+      ? GpsSignalStatus.good
+      : GpsSignalStatus.searching;
+  int _rejectedPointCount = 0;
+  bool _skipDistanceForNextAcceptedPoint = false;
+  String? _gpsDetailMessage;
   String? _errorMessage;
   RunResponse? _savedRun;
+
+  bool get _isRunning => _trackingState == RunTrackingState.running;
+
+  bool get _isPaused => _trackingState == RunTrackingState.paused;
+
+  bool get _isSaving => _trackingState == RunTrackingState.saving;
+
+  @override
+  void initState() {
+    super.initState();
+
+    if (kIsWeb) {
+      _gpsDetailMessage = 'Web test mode uses a sample route.';
+      return;
+    }
+
+    unawaited(_refreshPreStartGpsStatus());
+  }
 
   @override
   void dispose() {
@@ -68,18 +149,25 @@ class _RunScreenState extends State<RunScreen> {
       }
     }
 
+    final now = _now();
     setState(() {
-      _startTime = DateTime.now().toUtc();
+      _startTime = now;
+      _lastResumeTime = now;
+      _activeDuration = Duration.zero;
       _elapsedSeconds = 0;
       _distanceMeters = 0;
       _latestAccuracyMeters = null;
       _routePoints.clear();
-      _isRunning = true;
-      _isSaving = false;
+      _rejectedPointCount = 0;
+      _skipDistanceForNextAcceptedPoint = false;
+      _trackingState = RunTrackingState.running;
       _isWebTestMode = kIsWeb;
-      _gpsStatus = kIsWeb
-          ? 'Web test mode using sample route'
-          : 'GPS active. Acquiring signal.';
+      _gpsSignalStatus = kIsWeb
+          ? GpsSignalStatus.good
+          : GpsSignalStatus.searching;
+      _gpsDetailMessage = kIsWeb
+          ? 'Web test mode using sample route.'
+          : 'Searching for GPS signal...';
       _errorMessage = null;
       _savedRun = null;
     });
@@ -92,42 +180,145 @@ class _RunScreenState extends State<RunScreen> {
   }
 
   void _startTimer() {
+    _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      final startTime = _startTime;
-      if (startTime == null || !mounted) {
+      if (!mounted || !_isRunning) {
         return;
       }
 
       setState(() {
-        _elapsedSeconds = DateTime.now()
-            .toUtc()
-            .difference(startTime)
-            .inSeconds;
+        _elapsedSeconds = _currentActiveDuration().inSeconds;
       });
     });
   }
 
+  Duration _currentActiveDuration() {
+    final lastResumeTime = _lastResumeTime;
+    if (!_isRunning || lastResumeTime == null) {
+      return _activeDuration;
+    }
+
+    return _activeDuration + _now().difference(lastResumeTime);
+  }
+
+  void _pauseRun() {
+    if (!_isRunning) {
+      return;
+    }
+
+    _finalizeActiveDurationSegment();
+    _timer?.cancel();
+
+    setState(() {
+      _elapsedSeconds = _activeDuration.inSeconds;
+      _trackingState = RunTrackingState.paused;
+      _gpsDetailMessage = 'Paused - GPS points are not being counted.';
+      _errorMessage = null;
+    });
+  }
+
+  void _resumeRun() {
+    if (!_isPaused) {
+      return;
+    }
+
+    setState(() {
+      _lastResumeTime = _now();
+      _skipDistanceForNextAcceptedPoint = true;
+      _trackingState = RunTrackingState.running;
+      _gpsDetailMessage = 'GPS ready';
+      _errorMessage = null;
+    });
+    _startTimer();
+  }
+
+  void _finalizeActiveDurationSegment() {
+    final lastResumeTime = _lastResumeTime;
+    if (lastResumeTime == null) {
+      return;
+    }
+
+    _activeDuration += _now().difference(lastResumeTime);
+    _lastResumeTime = null;
+  }
+
+  Future<void> _refreshPreStartGpsStatus() async {
+    try {
+      final canTrackLocation = await _checkLocationReady(
+        requestPermission: false,
+      );
+      if (!canTrackLocation ||
+          !mounted ||
+          _trackingState != RunTrackingState.idle) {
+        return;
+      }
+
+      setState(() {
+        _gpsSignalStatus = GpsSignalStatus.searching;
+        _gpsDetailMessage = 'Searching for GPS signal...';
+      });
+
+      try {
+        final position = await _locationClient.getCurrentPosition(
+          settings: _buildCurrentPositionSettings(),
+        );
+
+        if (!mounted || _trackingState != RunTrackingState.idle) {
+          return;
+        }
+
+        _updateGpsStatusFromPosition(position);
+      } catch (_) {
+        if (!mounted || _trackingState != RunTrackingState.idle) {
+          return;
+        }
+
+        setState(() {
+          _gpsSignalStatus = GpsSignalStatus.searching;
+          _gpsDetailMessage = 'Searching for GPS signal...';
+        });
+      }
+    } catch (error) {
+      if (!mounted || _trackingState != RunTrackingState.idle) {
+        return;
+      }
+
+      setState(() {
+        _gpsSignalStatus = GpsSignalStatus.dead;
+        _gpsDetailMessage =
+            'Location unavailable. Enable location permission to start.';
+        _errorMessage = 'Location status error: $error';
+      });
+    }
+  }
+
   Future<bool> _ensureLocationReady() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    return _checkLocationReady(requestPermission: true);
+  }
+
+  Future<bool> _checkLocationReady({required bool requestPermission}) async {
+    final serviceEnabled = await _locationClient.isLocationServiceEnabled();
     if (!serviceEnabled) {
       if (mounted) {
         setState(() {
-          _gpsStatus = 'Location services are disabled.';
+          _gpsSignalStatus = GpsSignalStatus.dead;
+          _gpsDetailMessage = 'Location services are off.';
           _errorMessage = 'Turn on Location Services to start tracking a run.';
         });
       }
       return false;
     }
 
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
+    var permission = await _locationClient.checkPermission();
+    if (permission == LocationPermission.denied && requestPermission) {
+      permission = await _locationClient.requestPermission();
     }
 
     if (permission == LocationPermission.denied) {
       if (mounted) {
         setState(() {
-          _gpsStatus = 'Location permission denied.';
+          _gpsSignalStatus = GpsSignalStatus.dead;
+          _gpsDetailMessage = 'Location permission denied.';
           _errorMessage = 'Allow location access to track your run.';
         });
       }
@@ -137,7 +328,8 @@ class _RunScreenState extends State<RunScreen> {
     if (permission == LocationPermission.deniedForever) {
       if (mounted) {
         setState(() {
-          _gpsStatus = 'Location permission blocked.';
+          _gpsSignalStatus = GpsSignalStatus.dead;
+          _gpsDetailMessage = 'Location permission denied.';
           _errorMessage =
               'Enable location access for Momentum in Settings to track your run.';
         });
@@ -151,8 +343,9 @@ class _RunScreenState extends State<RunScreen> {
   void _startPositionStream() {
     final locationSettings = _buildStreamLocationSettings();
 
-    _positionSubscription =
-        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
+    _positionSubscription = _locationClient
+        .getPositionStream(settings: locationSettings)
+        .listen(
           _handlePosition,
           onError: (Object error) {
             if (!mounted) {
@@ -160,7 +353,9 @@ class _RunScreenState extends State<RunScreen> {
             }
 
             setState(() {
-              _gpsStatus = 'GPS error.';
+              _gpsSignalStatus = GpsSignalStatus.dead;
+              _gpsDetailMessage =
+                  'Location unavailable. Enable location permission to start.';
               _errorMessage = 'Location tracking error: $error';
             });
           },
@@ -207,8 +402,8 @@ class _RunScreenState extends State<RunScreen> {
 
   Future<void> _seedInitialPosition() async {
     try {
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: _buildCurrentPositionSettings(),
+      final position = await _locationClient.getCurrentPosition(
+        settings: _buildCurrentPositionSettings(),
       );
       _handlePosition(position);
     } catch (_) {
@@ -217,19 +412,27 @@ class _RunScreenState extends State<RunScreen> {
       }
 
       setState(() {
-        _gpsStatus = 'GPS active. Waiting for location update.';
+        _gpsSignalStatus = GpsSignalStatus.searching;
+        _gpsDetailMessage = 'Searching for GPS signal...';
       });
     }
   }
 
   void _handlePosition(Position position) {
-    if (!_isRunning || !_isValidCoordinate(position)) {
+    _updateGpsStatusFromPosition(position);
+
+    if (!_isRunning) {
+      return;
+    }
+
+    if (!_isValidCoordinate(position)) {
+      _updateRejectedPosition();
       return;
     }
 
     final accuracy = position.accuracy;
     if (!accuracy.isFinite || accuracy > _maximumAcceptedAccuracyMeters) {
-      _updateRejectedAccuracy(accuracy);
+      _updateRejectedPosition();
       return;
     }
 
@@ -243,16 +446,32 @@ class _RunScreenState extends State<RunScreen> {
         position.longitude,
       );
 
-      if (distanceFromPrevious < _minimumPointDistanceMeters) {
-        _updateRejectedDuplicate(accuracy);
+      if (!_skipDistanceForNextAcceptedPoint &&
+          distanceFromPrevious < _minimumPointDistanceMeters) {
+        _updateRejectedPosition();
         return;
+      }
+
+      if (_skipDistanceForNextAcceptedPoint) {
+        distanceFromPrevious = 0;
+      } else {
+        final speedMetersPerSecond = _calculateSpeedMetersPerSecond(
+          distanceMeters: distanceFromPrevious,
+          previousRecordedAt: previousPoint.recordedAt,
+          candidateRecordedAt: position.timestamp.toUtc(),
+        );
+        if (speedMetersPerSecond <= 0 ||
+            speedMetersPerSecond > _maximumRunningSpeedMetersPerSecond) {
+          _updateRejectedPosition();
+          return;
+        }
       }
     }
 
     final acceptedPoint = RoutePointRequest(
       latitude: position.latitude,
       longitude: position.longitude,
-      recordedAt: DateTime.now().toUtc(),
+      recordedAt: position.timestamp.toUtc(),
       accuracyMeters: accuracy,
       sequenceNumber: _routePoints.length + 1,
     );
@@ -261,7 +480,47 @@ class _RunScreenState extends State<RunScreen> {
       _routePoints.add(acceptedPoint);
       _distanceMeters += distanceFromPrevious;
       _latestAccuracyMeters = accuracy;
-      _gpsStatus = 'GPS active';
+      _skipDistanceForNextAcceptedPoint = false;
+      _gpsSignalStatus = GpsSignalStatus.good;
+      _gpsDetailMessage = 'GPS ready';
+    });
+  }
+
+  double _calculateSpeedMetersPerSecond({
+    required double distanceMeters,
+    required DateTime previousRecordedAt,
+    required DateTime candidateRecordedAt,
+  }) {
+    final timeSeconds =
+        candidateRecordedAt.difference(previousRecordedAt).inMilliseconds /
+        1000;
+    if (timeSeconds <= 0) {
+      return 0;
+    }
+
+    return distanceMeters / timeSeconds;
+  }
+
+  void _updateGpsStatusFromPosition(Position position) {
+    if (!mounted) {
+      return;
+    }
+
+    final accuracy = position.accuracy;
+    final hasUsableAccuracy = accuracy.isFinite;
+    setState(() {
+      _latestAccuracyMeters = hasUsableAccuracy ? accuracy : null;
+      if (!hasUsableAccuracy) {
+        _gpsSignalStatus = GpsSignalStatus.searching;
+        _gpsDetailMessage = 'Searching for GPS signal...';
+      } else if (accuracy > _maximumAcceptedAccuracyMeters) {
+        _gpsSignalStatus = GpsSignalStatus.weak;
+        _gpsDetailMessage =
+            'Weak GPS signal. You can start, but tracking may improve outdoors.';
+      } else {
+        _gpsSignalStatus = GpsSignalStatus.good;
+        _gpsDetailMessage = 'GPS ready';
+      }
     });
   }
 
@@ -274,43 +533,34 @@ class _RunScreenState extends State<RunScreen> {
         position.longitude <= 180;
   }
 
-  void _updateRejectedAccuracy(double accuracy) {
+  void _updateRejectedPosition() {
     if (!mounted) {
       return;
     }
 
     setState(() {
-      _latestAccuracyMeters = accuracy.isFinite ? accuracy : null;
-      _gpsStatus = 'GPS active. Waiting for better accuracy.';
-    });
-  }
-
-  void _updateRejectedDuplicate(double accuracy) {
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _latestAccuracyMeters = accuracy;
-      _gpsStatus = 'GPS active. Waiting for movement.';
+      _rejectedPointCount += 1;
     });
   }
 
   Future<void> _stopRun() async {
     final startTime = _startTime;
-    if (startTime == null || _isSaving) {
+    if (startTime == null || _isSaving || (!_isRunning && !_isPaused)) {
       return;
     }
 
+    if (_isRunning) {
+      _finalizeActiveDurationSegment();
+    }
+
     _timer?.cancel();
-    await _positionSubscription?.cancel();
+    unawaited(_positionSubscription?.cancel());
     _positionSubscription = null;
 
-    var endTime = DateTime.now().toUtc();
-    var durationSeconds = max(1, endTime.difference(startTime).inSeconds);
+    var endTime = _now();
+    var durationSeconds = max(1, _activeDuration.inSeconds);
     if (!endTime.isAfter(startTime)) {
       endTime = startTime.add(const Duration(seconds: 1));
-      durationSeconds = 1;
     }
 
     if (_isWebTestMode) {
@@ -322,12 +572,13 @@ class _RunScreenState extends State<RunScreen> {
 
     if (!_hasEnoughGpsData(durationSeconds)) {
       setState(() {
-        _isRunning = false;
-        _isSaving = false;
+        _trackingState = RunTrackingState.idle;
         _elapsedSeconds = durationSeconds;
-        _gpsStatus = 'GPS idle';
+        _lastResumeTime = null;
+        _gpsSignalStatus = GpsSignalStatus.searching;
+        _gpsDetailMessage = 'Searching for GPS signal...';
         _errorMessage =
-            'Not enough GPS data collected. Please try again outdoors.';
+            'Not enough valid GPS data collected. Please try again outdoors.';
       });
       return;
     }
@@ -338,10 +589,10 @@ class _RunScreenState extends State<RunScreen> {
     );
 
     setState(() {
-      _isRunning = false;
-      _isSaving = true;
+      _trackingState = RunTrackingState.saving;
       _elapsedSeconds = durationSeconds;
-      _gpsStatus = 'Saving run';
+      _lastResumeTime = null;
+      _gpsDetailMessage = 'Saving run...';
       _errorMessage = null;
     });
 
@@ -364,7 +615,8 @@ class _RunScreenState extends State<RunScreen> {
       setState(() {
         _savedRun = savedRun;
         _distanceMeters = savedRun.distanceMeters;
-        _gpsStatus = 'Run saved';
+        _trackingState = RunTrackingState.completed;
+        _gpsDetailMessage = 'Run saved';
       });
     } catch (error) {
       if (!mounted) {
@@ -372,15 +624,10 @@ class _RunScreenState extends State<RunScreen> {
       }
 
       setState(() {
-        _gpsStatus = 'Save failed';
+        _trackingState = RunTrackingState.idle;
+        _gpsDetailMessage = 'Save failed';
         _errorMessage = error.toString();
       });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSaving = false;
-        });
-      }
     }
   }
 
@@ -452,7 +699,7 @@ class _RunScreenState extends State<RunScreen> {
         _savedRun?.distanceMeters ?? _distanceMeters;
     final displayedPace = _savedRun?.averagePaceSecondsPerKm;
     final livePace = _calculateAveragePace(
-      durationSeconds: _elapsedSeconds,
+      durationSeconds: _currentDisplaySeconds(),
       distanceMeters: displayedDistanceMeters,
     );
     final paceText = displayedPace != null
@@ -460,6 +707,7 @@ class _RunScreenState extends State<RunScreen> {
         : displayedDistanceMeters <= 0
         ? '-- /km'
         : RunFormatters.pace(livePace);
+    final canStart = kIsWeb || _gpsSignalStatus != GpsSignalStatus.dead;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Run')),
@@ -473,7 +721,7 @@ class _RunScreenState extends State<RunScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    RunFormatters.duration(_elapsedSeconds),
+                    RunFormatters.duration(_currentDisplaySeconds()),
                     key: const Key('run-timer'),
                     style: Theme.of(context).textTheme.displayMedium,
                     textAlign: TextAlign.center,
@@ -487,9 +735,11 @@ class _RunScreenState extends State<RunScreen> {
                   ),
                   const SizedBox(height: 24),
                   _GpsStatus(
-                    status: _gpsStatus,
+                    signalStatus: _gpsSignalStatus,
+                    detailMessage: _gpsDetailMessage,
                     latestAccuracyMeters: _latestAccuracyMeters,
-                    pointCount: _routePoints.length,
+                    acceptedPointCount: _routePoints.length,
+                    rejectedPointCount: _rejectedPointCount,
                   ),
                   const SizedBox(height: 24),
                   LiveRouteMapWidget(
@@ -497,22 +747,26 @@ class _RunScreenState extends State<RunScreen> {
                     isRunning: _isRunning,
                   ),
                   const SizedBox(height: 24),
-                  if (_isRunning)
-                    Text(
-                      'Run in progress',
-                      key: const Key('run-status'),
-                      style: Theme.of(context).textTheme.titleMedium,
-                      textAlign: TextAlign.center,
-                    ),
-                  if (_isRunning) const SizedBox(height: 16),
-                  FilledButton(
-                    key: const Key('run-action-button'),
-                    onPressed: _isSaving
-                        ? null
-                        : _isRunning
-                        ? _stopRun
-                        : _startRun,
-                    child: Text(_isRunning ? 'Stop' : 'Start'),
+                  Text(
+                    _runStatusText(),
+                    key: const Key('run-status'),
+                    style: Theme.of(context).textTheme.titleMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  _RunControls(
+                    trackingState: _trackingState,
+                    canStart: canStart,
+                    onStart: _startRun,
+                    onPause: _pauseRun,
+                    onResume: _resumeRun,
+                    onStop: _stopRun,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _startButtonHelperText(),
+                    key: const Key('run-start-helper'),
+                    textAlign: TextAlign.center,
                   ),
                   if (_isSaving) ...[
                     const SizedBox(height: 24),
@@ -541,6 +795,112 @@ class _RunScreenState extends State<RunScreen> {
         ),
       ),
     );
+  }
+
+  int _currentDisplaySeconds() {
+    if (_isRunning) {
+      return _currentActiveDuration().inSeconds;
+    }
+
+    return _elapsedSeconds;
+  }
+
+  String _runStatusText() {
+    return switch (_trackingState) {
+      RunTrackingState.idle => 'Status: Idle',
+      RunTrackingState.running => 'Status: Running',
+      RunTrackingState.paused => 'Status: Paused',
+      RunTrackingState.saving => 'Status: Saving',
+      RunTrackingState.completed => 'Status: Completed',
+    };
+  }
+
+  String _startButtonHelperText() {
+    if (_isRunning) {
+      return 'Tracking accepted GPS points only.';
+    }
+    if (_isPaused) {
+      return 'Paused - GPS points are not being counted.';
+    }
+
+    return switch (_gpsSignalStatus) {
+      GpsSignalStatus.dead => 'Enable location to start',
+      GpsSignalStatus.searching => 'You can start. GPS will improve outdoors.',
+      GpsSignalStatus.weak => 'You can start, but GPS is weak.',
+      GpsSignalStatus.good => 'Ready to run',
+    };
+  }
+}
+
+class _RunControls extends StatelessWidget {
+  const _RunControls({
+    required this.trackingState,
+    required this.canStart,
+    required this.onStart,
+    required this.onPause,
+    required this.onResume,
+    required this.onStop,
+  });
+
+  final RunTrackingState trackingState;
+  final bool canStart;
+  final VoidCallback onStart;
+  final VoidCallback onPause;
+  final VoidCallback onResume;
+  final VoidCallback onStop;
+
+  @override
+  Widget build(BuildContext context) {
+    return switch (trackingState) {
+      RunTrackingState.idle || RunTrackingState.completed => FilledButton(
+        key: const Key('run-action-button'),
+        onPressed: canStart ? onStart : null,
+        child: const Text('Start'),
+      ),
+      RunTrackingState.running => Row(
+        children: [
+          Expanded(
+            child: FilledButton(
+              key: const Key('run-pause-button'),
+              onPressed: onPause,
+              child: const Text('Pause'),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: FilledButton.tonal(
+              key: const Key('run-stop-button'),
+              onPressed: onStop,
+              child: const Text('Stop'),
+            ),
+          ),
+        ],
+      ),
+      RunTrackingState.paused => Row(
+        children: [
+          Expanded(
+            child: FilledButton(
+              key: const Key('run-resume-button'),
+              onPressed: onResume,
+              child: const Text('Resume'),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: FilledButton.tonal(
+              key: const Key('run-stop-button'),
+              onPressed: onStop,
+              child: const Text('Stop'),
+            ),
+          ),
+        ],
+      ),
+      RunTrackingState.saving => const FilledButton(
+        key: Key('run-action-button'),
+        onPressed: null,
+        child: Text('Saving...'),
+      ),
+    };
   }
 }
 
@@ -613,14 +973,18 @@ class _MetricTile extends StatelessWidget {
 
 class _GpsStatus extends StatelessWidget {
   const _GpsStatus({
-    required this.status,
+    required this.signalStatus,
+    required this.detailMessage,
     required this.latestAccuracyMeters,
-    required this.pointCount,
+    required this.acceptedPointCount,
+    required this.rejectedPointCount,
   });
 
-  final String status;
+  final GpsSignalStatus signalStatus;
+  final String? detailMessage;
   final double? latestAccuracyMeters;
-  final int pointCount;
+  final int acceptedPointCount;
+  final int rejectedPointCount;
 
   @override
   Widget build(BuildContext context) {
@@ -640,17 +1004,36 @@ class _GpsStatus extends StatelessWidget {
           children: [
             Text('GPS status', style: Theme.of(context).textTheme.labelLarge),
             const SizedBox(height: 8),
-            Text(status, key: const Key('gps-status')),
+            Text('GPS: ${_gpsStatusLabel()}', key: const Key('gps-status')),
+            if (detailMessage != null) ...[
+              const SizedBox(height: 4),
+              Text(detailMessage!, key: const Key('gps-detail-message')),
+            ],
             const SizedBox(height: 8),
             _SummaryRow(label: 'Latest accuracy', value: accuracyText),
             _SummaryRow(
-              label: 'Valid route points',
-              value: pointCount.toString(),
+              label: 'Accepted points',
+              value: acceptedPointCount.toString(),
+              valueKey: const Key('gps-accepted-points'),
+            ),
+            _SummaryRow(
+              label: 'Rejected points',
+              value: rejectedPointCount.toString(),
+              valueKey: const Key('gps-rejected-points'),
             ),
           ],
         ),
       ),
     );
+  }
+
+  String _gpsStatusLabel() {
+    return switch (signalStatus) {
+      GpsSignalStatus.dead => 'Unavailable',
+      GpsSignalStatus.searching => 'Searching',
+      GpsSignalStatus.weak => 'Weak',
+      GpsSignalStatus.good => 'Good',
+    };
   }
 }
 
@@ -732,10 +1115,11 @@ class _RunSummary extends StatelessWidget {
 }
 
 class _SummaryRow extends StatelessWidget {
-  const _SummaryRow({required this.label, required this.value});
+  const _SummaryRow({required this.label, required this.value, this.valueKey});
 
   final String label;
   final String value;
+  final Key? valueKey;
 
   @override
   Widget build(BuildContext context) {
@@ -749,6 +1133,7 @@ class _SummaryRow extends StatelessWidget {
           Flexible(
             child: Text(
               value,
+              key: valueKey,
               textAlign: TextAlign.end,
               style: Theme.of(
                 context,

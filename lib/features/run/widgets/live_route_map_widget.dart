@@ -147,9 +147,7 @@ class _LiveRouteMap extends StatelessWidget {
                 ],
               ),
             MarkerLayer(markers: _markers(context)),
-            const SimpleAttributionWidget(
-              source: Text('OpenStreetMap contributors'),
-            ),
+            const SimpleAttributionWidget(source: Text('OSM')),
           ],
         ),
       ),
