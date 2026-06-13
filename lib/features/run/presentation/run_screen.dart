@@ -720,11 +720,12 @@ class _RunScreenState extends State<RunScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    RunFormatters.duration(_currentDisplaySeconds()),
-                    key: const Key('run-timer'),
-                    style: Theme.of(context).textTheme.displayMedium,
-                    textAlign: TextAlign.center,
+                  _RunTimerDisplay(
+                    durationText: RunFormatters.duration(
+                      _currentDisplaySeconds(),
+                    ),
+                    statusText: _runStatusText(),
+                    trackingState: _trackingState,
                   ),
                   const SizedBox(height: 24),
                   _RunMetrics(
@@ -747,13 +748,6 @@ class _RunScreenState extends State<RunScreen> {
                     isRunning: _isRunning,
                   ),
                   const SizedBox(height: 24),
-                  Text(
-                    _runStatusText(),
-                    key: const Key('run-status'),
-                    style: Theme.of(context).textTheme.titleMedium,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 16),
                   _RunControls(
                     trackingState: _trackingState,
                     canStart: canStart,
@@ -762,12 +756,15 @@ class _RunScreenState extends State<RunScreen> {
                     onResume: _resumeRun,
                     onStop: _stopRun,
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _startButtonHelperText(),
-                    key: const Key('run-start-helper'),
-                    textAlign: TextAlign.center,
-                  ),
+                  if (_startButtonHelperText() != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _startButtonHelperText()!,
+                      key: const Key('run-start-helper'),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                   if (_isSaving) ...[
                     const SizedBox(height: 24),
                     const Center(child: CircularProgressIndicator()),
@@ -815,19 +812,92 @@ class _RunScreenState extends State<RunScreen> {
     };
   }
 
-  String _startButtonHelperText() {
-    if (_isRunning) {
-      return 'Tracking accepted GPS points only.';
-    }
+  String? _startButtonHelperText() {
     if (_isPaused) {
-      return 'Paused - GPS points are not being counted.';
+      return 'Paused - GPS points are not counted.';
     }
 
     return switch (_gpsSignalStatus) {
       GpsSignalStatus.dead => 'Enable location to start',
-      GpsSignalStatus.searching => 'You can start. GPS will improve outdoors.',
-      GpsSignalStatus.weak => 'You can start, but GPS is weak.',
-      GpsSignalStatus.good => 'Ready to run',
+      GpsSignalStatus.weak => 'Weak signal, but you can start.',
+      GpsSignalStatus.searching || GpsSignalStatus.good => null,
+    };
+  }
+}
+
+class _RunTimerDisplay extends StatelessWidget {
+  const _RunTimerDisplay({
+    required this.durationText,
+    required this.statusText,
+    required this.trackingState,
+  });
+
+  final String durationText;
+  final String statusText;
+  final RunTrackingState trackingState;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final accentColor = switch (trackingState) {
+      RunTrackingState.running => colorScheme.primary,
+      RunTrackingState.paused => colorScheme.tertiary,
+      RunTrackingState.saving => colorScheme.secondary,
+      RunTrackingState.completed => colorScheme.primary,
+      RunTrackingState.idle => colorScheme.outline,
+    };
+
+    return Center(
+      child: Container(
+        width: 220,
+        height: 220,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: colorScheme.surface,
+          border: Border.all(color: accentColor, width: 6),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x1F000000),
+              blurRadius: 18,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(_statusIcon(), color: accentColor, size: 28),
+            const SizedBox(height: 12),
+            Text(
+              durationText,
+              key: const Key('run-timer'),
+              style: Theme.of(
+                context,
+              ).textTheme.displayMedium?.copyWith(fontWeight: FontWeight.w700),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              statusText,
+              key: const Key('run-status'),
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData _statusIcon() {
+    return switch (trackingState) {
+      RunTrackingState.running => Icons.directions_run,
+      RunTrackingState.paused => Icons.pause,
+      RunTrackingState.saving => Icons.cloud_upload,
+      RunTrackingState.completed => Icons.check,
+      RunTrackingState.idle => Icons.play_arrow,
     };
   }
 }
@@ -855,7 +925,11 @@ class _RunControls extends StatelessWidget {
       RunTrackingState.idle || RunTrackingState.completed => FilledButton(
         key: const Key('run-action-button'),
         onPressed: canStart ? onStart : null,
-        child: const Text('Start'),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [Icon(Icons.play_arrow), SizedBox(width: 8), Text('Start')],
+        ),
       ),
       RunTrackingState.running => Row(
         children: [
@@ -863,7 +937,15 @@ class _RunControls extends StatelessWidget {
             child: FilledButton(
               key: const Key('run-pause-button'),
               onPressed: onPause,
-              child: const Text('Pause'),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.pause),
+                  SizedBox(width: 8),
+                  Text('Pause'),
+                ],
+              ),
             ),
           ),
           const SizedBox(width: 12),
@@ -871,7 +953,11 @@ class _RunControls extends StatelessWidget {
             child: FilledButton.tonal(
               key: const Key('run-stop-button'),
               onPressed: onStop,
-              child: const Text('Stop'),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [Icon(Icons.stop), SizedBox(width: 8), Text('Stop')],
+              ),
             ),
           ),
         ],
@@ -882,7 +968,15 @@ class _RunControls extends StatelessWidget {
             child: FilledButton(
               key: const Key('run-resume-button'),
               onPressed: onResume,
-              child: const Text('Resume'),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.play_arrow),
+                  SizedBox(width: 8),
+                  Text('Resume'),
+                ],
+              ),
             ),
           ),
           const SizedBox(width: 12),
@@ -890,7 +984,11 @@ class _RunControls extends StatelessWidget {
             child: FilledButton.tonal(
               key: const Key('run-stop-button'),
               onPressed: onStop,
-              child: const Text('Stop'),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [Icon(Icons.stop), SizedBox(width: 8), Text('Stop')],
+              ),
             ),
           ),
         ],
@@ -988,13 +1086,17 @@ class _GpsStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     final accuracyText = latestAccuracyMeters == null
         ? '--'
         : '${latestAccuracyMeters!.toStringAsFixed(1)} m';
+    final signalColor = _signalColor(colorScheme);
+    final label = _gpsStatusLabel();
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        color: colorScheme.surfaceContainerLowest,
+        border: Border.all(color: colorScheme.outlineVariant),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Padding(
@@ -1002,24 +1104,61 @@ class _GpsStatus extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('GPS status', style: Theme.of(context).textTheme.labelLarge),
-            const SizedBox(height: 8),
-            Text('GPS: ${_gpsStatusLabel()}', key: const Key('gps-status')),
-            if (detailMessage != null) ...[
-              const SizedBox(height: 4),
-              Text(detailMessage!, key: const Key('gps-detail-message')),
-            ],
-            const SizedBox(height: 8),
-            _SummaryRow(label: 'Latest accuracy', value: accuracyText),
-            _SummaryRow(
-              label: 'Accepted points',
-              value: acceptedPointCount.toString(),
-              valueKey: const Key('gps-accepted-points'),
+            Row(
+              children: [
+                _SignalDot(color: signalColor),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'GPS: $label',
+                    key: const Key('gps-status'),
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Text(
+                  accuracyText,
+                  key: const Key('gps-accuracy'),
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
-            _SummaryRow(
-              label: 'Rejected points',
-              value: rejectedPointCount.toString(),
-              valueKey: const Key('gps-rejected-points'),
+            if (detailMessage != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _compactDetailMessage(),
+                key: const Key('gps-detail-message'),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _GpsStatChip(
+                  label: 'Accuracy',
+                  value: accuracyText,
+                  icon: Icons.my_location,
+                ),
+                _GpsStatChip(
+                  label: 'Accepted',
+                  value: acceptedPointCount.toString(),
+                  icon: Icons.check_circle_outline,
+                  valueKey: const Key('gps-accepted-points'),
+                ),
+                _GpsStatChip(
+                  label: 'Rejected',
+                  value: rejectedPointCount.toString(),
+                  icon: Icons.filter_alt_outlined,
+                  valueKey: const Key('gps-rejected-points'),
+                ),
+              ],
             ),
           ],
         ),
@@ -1034,6 +1173,98 @@ class _GpsStatus extends StatelessWidget {
       GpsSignalStatus.weak => 'Weak',
       GpsSignalStatus.good => 'Good',
     };
+  }
+
+  Color _signalColor(ColorScheme colorScheme) {
+    return switch (signalStatus) {
+      GpsSignalStatus.dead => colorScheme.error,
+      GpsSignalStatus.searching => colorScheme.outline,
+      GpsSignalStatus.weak => colorScheme.tertiary,
+      GpsSignalStatus.good => colorScheme.primary,
+    };
+  }
+
+  String _compactDetailMessage() {
+    return switch (signalStatus) {
+      GpsSignalStatus.good => 'Ready',
+      GpsSignalStatus.weak => 'Weak signal - tracking may improve outdoors.',
+      GpsSignalStatus.searching => 'Searching for signal...',
+      GpsSignalStatus.dead => detailMessage ?? 'Unavailable',
+    };
+  }
+}
+
+class _SignalDot extends StatelessWidget {
+  const _SignalDot({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.18),
+        shape: BoxShape.circle,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(5),
+        child: DecoratedBox(
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          child: const SizedBox(width: 12, height: 12),
+        ),
+      ),
+    );
+  }
+}
+
+class _GpsStatChip extends StatelessWidget {
+  const _GpsStatChip({
+    required this.label,
+    required this.value,
+    required this.icon,
+    this.valueKey,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Key? valueKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: colorScheme.onSurfaceVariant),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              value,
+              key: valueKey,
+              style: Theme.of(
+                context,
+              ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -1115,11 +1346,10 @@ class _RunSummary extends StatelessWidget {
 }
 
 class _SummaryRow extends StatelessWidget {
-  const _SummaryRow({required this.label, required this.value, this.valueKey});
+  const _SummaryRow({required this.label, required this.value});
 
   final String label;
   final String value;
-  final Key? valueKey;
 
   @override
   Widget build(BuildContext context) {
@@ -1133,7 +1363,6 @@ class _SummaryRow extends StatelessWidget {
           Flexible(
             child: Text(
               value,
-              key: valueKey,
               textAlign: TextAlign.end,
               style: Theme.of(
                 context,

@@ -91,8 +91,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('GPS: Weak'), findsOneWidget);
-    expect(find.text('You can start, but GPS is weak.'), findsOneWidget);
-    expect(find.text('35.0 m'), findsOneWidget);
+    expect(find.text('Weak signal, but you can start.'), findsOneWidget);
+    expect(_textValue(tester, const Key('gps-accuracy')), '35.0 m');
 
     final button = tester.widget<FilledButton>(
       find.byKey(const Key('run-action-button')),
@@ -181,10 +181,7 @@ void main() {
 
     expect(find.text('Status: Paused'), findsOneWidget);
     expect(find.text('Resume'), findsOneWidget);
-    expect(
-      find.text('Paused - GPS points are not being counted.'),
-      findsWidgets,
-    );
+    expect(find.text('Paused - GPS points are not counted.'), findsOneWidget);
     expect(runApiService.createdRuns, isEmpty);
     expect(
       tester.widget<Text>(find.byKey(const Key('run-distance'))).data,
