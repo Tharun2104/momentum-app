@@ -9,6 +9,7 @@ import '../data/run_api_service.dart';
 import '../models/create_run_request.dart';
 import '../models/route_point_request.dart';
 import '../models/run_response.dart';
+import '../widgets/live_route_map_widget.dart';
 import 'run_detail_screen.dart';
 import 'run_formatters.dart';
 import 'run_history_screen.dart';
@@ -489,6 +490,11 @@ class _RunScreenState extends State<RunScreen> {
                     status: _gpsStatus,
                     latestAccuracyMeters: _latestAccuracyMeters,
                     pointCount: _routePoints.length,
+                  ),
+                  const SizedBox(height: 24),
+                  LiveRouteMapWidget(
+                    routePoints: List.unmodifiable(_routePoints),
+                    isRunning: _isRunning,
                   ),
                   const SizedBox(height: 24),
                   if (_isRunning)

@@ -22,6 +22,10 @@ void main() {
     expect(find.text('0.00 km'), findsOneWidget);
     expect(find.text('-- /km'), findsOneWidget);
     expect(find.text('GPS idle'), findsOneWidget);
+    expect(
+      find.text('Map will appear when GPS tracking starts.'),
+      findsOneWidget,
+    );
     expect(find.text('Start'), findsOneWidget);
   });
 
