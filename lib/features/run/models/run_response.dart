@@ -11,6 +11,11 @@ class RunResponse {
     required this.createdAt,
     required this.updatedAt,
     required this.routePoints,
+    this.appStepCount,
+    this.healthKitStartStepCount,
+    this.healthKitEndStepCount,
+    this.healthKitStepCount,
+    this.healthKitUpdateLagSeconds,
   });
 
   final int id;
@@ -19,6 +24,11 @@ class RunResponse {
   final double distanceMeters;
   final int durationSeconds;
   final double averagePaceSecondsPerKm;
+  final int? appStepCount;
+  final int? healthKitStartStepCount;
+  final int? healthKitEndStepCount;
+  final int? healthKitStepCount;
+  final int? healthKitUpdateLagSeconds;
   final DateTime createdAt;
   final DateTime updatedAt;
   final List<RoutePointResponse> routePoints;
@@ -34,6 +44,13 @@ class RunResponse {
       durationSeconds: json['durationSeconds'] as int,
       averagePaceSecondsPerKm: (json['averagePaceSecondsPerKm'] as num)
           .toDouble(),
+      appStepCount: _optionalInt(json['appStepCount']),
+      healthKitStartStepCount: _optionalInt(json['healthKitStartStepCount']),
+      healthKitEndStepCount: _optionalInt(json['healthKitEndStepCount']),
+      healthKitStepCount: _optionalInt(json['healthKitStepCount']),
+      healthKitUpdateLagSeconds: _optionalInt(
+        json['healthKitUpdateLagSeconds'],
+      ),
       createdAt: DateTime.parse(json['createdAt'] as String).toUtc(),
       updatedAt: DateTime.parse(json['updatedAt'] as String).toUtc(),
       routePoints: routePointsJson
@@ -43,5 +60,9 @@ class RunResponse {
           )
           .toList(),
     );
+  }
+
+  static int? _optionalInt(Object? value) {
+    return value == null ? null : (value as num).toInt();
   }
 }

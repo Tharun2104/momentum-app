@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../features/fitness/presentation/fitness_screen.dart';
 import '../features/run/presentation/run_history_screen.dart';
 import '../features/run/presentation/run_screen.dart';
 
@@ -40,6 +41,17 @@ class HomeScreen extends StatelessWidget {
                     );
                   },
                   child: const Text('Run'),
+                ),
+                const SizedBox(height: 12),
+                FilledButton.tonal(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const FitnessScreen(),
+                      ),
+                    );
+                  },
+                  child: const Text('Fitness'),
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton(

@@ -1,14 +1,20 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 
+import 'package:momentum_app/features/fitness/data/fitness_data_client.dart';
+import 'package:momentum_app/features/fitness/models/fitness_summary.dart';
+import 'package:momentum_app/features/fitness/presentation/fitness_screen.dart';
 import 'package:momentum_app/features/run/data/run_api_service.dart';
 import 'package:momentum_app/features/run/models/create_run_request.dart';
 import 'package:momentum_app/features/run/models/route_point_response.dart';
 import 'package:momentum_app/features/run/models/run_response.dart';
+import 'package:momentum_app/features/run/presentation/run_detail_screen.dart';
 import 'package:momentum_app/features/run/presentation/run_history_screen.dart';
+import 'package:momentum_app/features/run/data/run_step_client.dart';
 import 'package:momentum_app/features/run/presentation/run_screen.dart';
 import 'package:momentum_app/main.dart';
 
@@ -19,6 +25,7 @@ void main() {
     expect(find.text('Momentum'), findsWidgets);
     expect(find.text('Track your run with focus'), findsOneWidget);
     expect(find.text('Run'), findsOneWidget);
+    expect(find.text('Fitness'), findsOneWidget);
     expect(find.text('History'), findsOneWidget);
 
     await tester.tap(find.text('Run'));
@@ -33,6 +40,62 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Start'), findsOneWidget);
+  });
+
+  testWidgets('opens fitness from home', (tester) async {
+    await tester.pumpWidget(const MomentumApp());
+
+    await tester.tap(find.text('Fitness'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Fitness'), findsWidgets);
+    expect(find.text("Today's activity from Apple Health"), findsOneWidget);
+    expect(find.text('Steps'), findsOneWidget);
+    expect(find.text('Distance'), findsOneWidget);
+    expect(find.text('Calories'), findsOneWidget);
+  });
+
+  testWidgets('fitness screen displays today health totals', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FitnessScreen(
+          fitnessDataClient: _FakeFitnessDataClient(
+            const FitnessSummary(
+              status: FitnessSummaryStatus.ready,
+              steps: 12482,
+              distanceMeters: 7420,
+              activeCalories: 531,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('12,482'), findsOneWidget);
+    expect(find.text('7.42 km'), findsOneWidget);
+    expect(find.text('531 kcal'), findsOneWidget);
+  });
+
+  testWidgets('fitness screen handles permission denial', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FitnessScreen(
+          fitnessDataClient: _FakeFitnessDataClient(
+            const FitnessSummary(
+              status: FitnessSummaryStatus.permissionDenied,
+              message: 'Allow Health access to show today\'s fitness data.',
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Allow Health access to show today\'s fitness data.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('disables start when GPS is unavailable', (tester) async {
@@ -272,6 +335,89 @@ void main() {
     expect(find.text('Run saved successfully'), findsOneWidget);
   });
 
+  testWidgets('tracks app steps and saves Apple Health step comparison', (
+    tester,
+  ) async {
+    final locationClient = _FakeLocationClient(
+      currentPosition: _position(
+        latitude: 35.22710,
+        longitude: -80.84310,
+        timestamp: DateTime.parse('2026-06-13T10:00:00Z'),
+      ),
+    );
+    final runApiService = _FakeRunApiService([]);
+    final stepClient = _FakeRunStepClient(
+      startSnapshot: const RunStepStartSnapshot(healthKitStartStepCount: 47000),
+      appStepCounts: [24, 48],
+      finishSnapshot: const RunStepFinishSnapshot(
+        appStepCount: 72,
+        healthKitEndStepCount: 47065,
+        healthKitUpdateLagSeconds: 10,
+      ),
+    );
+    final clock = _FakeClock(DateTime.parse('2026-06-13T10:00:00Z'));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RunScreen(
+          runApiService: runApiService,
+          locationClient: locationClient,
+          stepClient: stepClient,
+          now: clock.now,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('run-action-button')));
+    await tester.tap(find.byKey(const Key('run-action-button')));
+    await tester.pump();
+
+    expect(find.text('Momentum steps'), findsOneWidget);
+    expect(find.text('24'), findsOneWidget);
+
+    clock.advance(const Duration(seconds: 6));
+    await tester.pump(const Duration(seconds: 6));
+
+    locationClient.addPosition(
+      _position(
+        latitude: 35.22710,
+        longitude: -80.84310,
+        timestamp: DateTime.parse('2026-06-13T10:00:00Z'),
+      ),
+    );
+    await tester.pump();
+    locationClient.addPosition(
+      _position(
+        latitude: 35.22720,
+        longitude: -80.84310,
+        timestamp: DateTime.parse('2026-06-13T10:00:10Z'),
+      ),
+    );
+    await tester.pump();
+
+    await tester.ensureVisible(find.byKey(const Key('run-stop-button')));
+    final stopButton = tester.widget<FilledButton>(
+      find.byKey(const Key('run-stop-button')),
+    );
+    stopButton.onPressed!();
+    await tester.pumpAndSettle();
+
+    expect(runApiService.createdRuns, hasLength(1));
+    expect(runApiService.createdRuns.single.appStepCount, 72);
+    expect(runApiService.createdRuns.single.healthKitStartStepCount, 47000);
+    expect(runApiService.createdRuns.single.healthKitEndStepCount, 47065);
+    expect(runApiService.createdRuns.single.healthKitUpdateLagSeconds, 10);
+    expect(find.text('Momentum steps'), findsWidgets);
+    expect(find.text('72'), findsWidgets);
+    expect(find.text('Apple tracked'), findsOneWidget);
+    expect(find.text('65'), findsOneWidget);
+    expect(
+      find.text('Apple Health checked again after 10 sec.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('deletes a run from history after confirmation', (tester) async {
     final runApiService = _FakeRunApiService([_runResponse()]);
 
@@ -298,6 +444,34 @@ void main() {
     expect(runApiService.deletedRunIds, [1]);
     expect(find.text('No runs yet'), findsOneWidget);
     expect(find.text('Run deleted'), findsOneWidget);
+  });
+
+  testWidgets('run detail displays saved step comparison', (tester) async {
+    final runApiService = _FakeRunApiService([
+      _runResponse(
+        appStepCount: 1800,
+        healthKitStartStepCount: 47000,
+        healthKitEndStepCount: 48720,
+        healthKitStepCount: 1720,
+        healthKitUpdateLagSeconds: 10,
+      ),
+    ]);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RunDetailScreen(runId: 1, runApiService: runApiService),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Momentum steps'), findsOneWidget);
+    expect(find.text('1800'), findsOneWidget);
+    expect(find.text('Apple tracked'), findsOneWidget);
+    expect(find.text('1720'), findsOneWidget);
+    expect(
+      find.text('Apple Health checked again after 10 sec.'),
+      findsOneWidget,
+    );
   });
 }
 
@@ -328,6 +502,15 @@ class _FakeRunApiService extends RunApiService {
       distanceMeters: request.distanceMeters,
       durationSeconds: request.durationSeconds,
       averagePaceSecondsPerKm: request.averagePaceSecondsPerKm,
+      appStepCount: request.appStepCount,
+      healthKitStartStepCount: request.healthKitStartStepCount,
+      healthKitEndStepCount: request.healthKitEndStepCount,
+      healthKitStepCount:
+          request.healthKitStartStepCount == null ||
+              request.healthKitEndStepCount == null
+          ? null
+          : request.healthKitEndStepCount! - request.healthKitStartStepCount!,
+      healthKitUpdateLagSeconds: request.healthKitUpdateLagSeconds,
       createdAt: now,
       updatedAt: now,
       routePoints: List.generate(request.routePoints.length, (index) {
@@ -347,6 +530,11 @@ class _FakeRunApiService extends RunApiService {
   @override
   Future<List<RunResponse>> getRuns() async {
     return List.unmodifiable(_runs);
+  }
+
+  @override
+  Future<RunResponse> getRunById(int id) async {
+    return _runs.singleWhere((run) => run.id == id);
   }
 
   @override
@@ -401,6 +589,51 @@ class _FakeLocationClient implements RunLocationClient {
   }
 }
 
+class _FakeFitnessDataClient implements FitnessDataClient {
+  const _FakeFitnessDataClient(this.summary);
+
+  final FitnessSummary summary;
+
+  @override
+  Future<FitnessSummary> loadTodaySummary() async {
+    return summary;
+  }
+}
+
+class _FakeRunStepClient implements RunStepClient {
+  _FakeRunStepClient({
+    required this.startSnapshot,
+    required this.finishSnapshot,
+    required List<int> appStepCounts,
+  }) : _appStepCounts = Queue<int>.of(appStepCounts);
+
+  final RunStepStartSnapshot startSnapshot;
+  final RunStepFinishSnapshot finishSnapshot;
+  final Queue<int> _appStepCounts;
+
+  @override
+  Future<RunStepStartSnapshot> startRun({required DateTime startTime}) async {
+    return startSnapshot;
+  }
+
+  @override
+  Future<int?> currentAppStepCount({required DateTime startTime}) async {
+    if (_appStepCounts.isEmpty) {
+      return null;
+    }
+
+    return _appStepCounts.removeFirst();
+  }
+
+  @override
+  Future<RunStepFinishSnapshot> finishRun({
+    required DateTime startTime,
+    required DateTime endTime,
+  }) async {
+    return finishSnapshot;
+  }
+}
+
 class _FakeClock {
   _FakeClock(this._now);
 
@@ -415,7 +648,13 @@ class _FakeClock {
   }
 }
 
-RunResponse _runResponse() {
+RunResponse _runResponse({
+  int? appStepCount,
+  int? healthKitStartStepCount,
+  int? healthKitEndStepCount,
+  int? healthKitStepCount,
+  int? healthKitUpdateLagSeconds,
+}) {
   final startTime = DateTime.parse('2026-06-13T10:00:00Z');
 
   return RunResponse(
@@ -425,6 +664,11 @@ RunResponse _runResponse() {
     distanceMeters: 1000,
     durationSeconds: 360,
     averagePaceSecondsPerKm: 360,
+    appStepCount: appStepCount,
+    healthKitStartStepCount: healthKitStartStepCount,
+    healthKitEndStepCount: healthKitEndStepCount,
+    healthKitStepCount: healthKitStepCount,
+    healthKitUpdateLagSeconds: healthKitUpdateLagSeconds,
     createdAt: startTime,
     updatedAt: startTime,
     routePoints: const [],

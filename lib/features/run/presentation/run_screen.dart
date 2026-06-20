@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../data/run_api_service.dart';
+import '../data/run_step_client.dart';
 import '../models/create_run_request.dart';
 import '../models/route_point_request.dart';
 import '../models/run_response.dart';
@@ -64,11 +65,13 @@ class RunScreen extends StatefulWidget {
     super.key,
     this.runApiService,
     this.locationClient,
+    this.stepClient,
     this.now,
   });
 
   final RunApiService? runApiService;
   final RunLocationClient? locationClient;
+  final RunStepClient? stepClient;
   final DateTime Function()? now;
 
   @override
@@ -85,6 +88,8 @@ class _RunScreenState extends State<RunScreen> {
       widget.runApiService ?? RunApiService();
   late final RunLocationClient _locationClient =
       widget.locationClient ?? const GeolocatorRunLocationClient();
+  late final RunStepClient _stepClient =
+      widget.stepClient ?? createPlatformRunStepClient();
   late final DateTime Function() _now =
       widget.now ?? () => DateTime.now().toUtc();
 
@@ -96,6 +101,11 @@ class _RunScreenState extends State<RunScreen> {
   DateTime? _lastResumeTime;
   Duration _activeDuration = Duration.zero;
   int _elapsedSeconds = 0;
+  int? _appStepCount;
+  int? _healthKitStartStepCount;
+  int _pausedAppStepCountOffset = 0;
+  int? _pauseStartRawAppStepCount;
+  bool _isRefreshingStepCount = false;
   double _distanceMeters = 0;
   double? _latestAccuracyMeters;
   RunTrackingState _trackingState = RunTrackingState.idle;
@@ -150,11 +160,16 @@ class _RunScreenState extends State<RunScreen> {
     }
 
     final now = _now();
+    final stepStartSnapshot = await _stepClient.startRun(startTime: now);
     setState(() {
       _startTime = now;
       _lastResumeTime = now;
       _activeDuration = Duration.zero;
       _elapsedSeconds = 0;
+      _appStepCount = null;
+      _healthKitStartStepCount = stepStartSnapshot.healthKitStartStepCount;
+      _pausedAppStepCountOffset = 0;
+      _pauseStartRawAppStepCount = null;
       _distanceMeters = 0;
       _latestAccuracyMeters = null;
       _routePoints.clear();
@@ -173,6 +188,7 @@ class _RunScreenState extends State<RunScreen> {
     });
 
     _startTimer();
+    unawaited(_refreshAppStepCount());
 
     if (!kIsWeb) {
       _startPositionStream();
@@ -189,6 +205,7 @@ class _RunScreenState extends State<RunScreen> {
       setState(() {
         _elapsedSeconds = _currentActiveDuration().inSeconds;
       });
+      unawaited(_refreshAppStepCount());
     });
   }
 
@@ -208,6 +225,7 @@ class _RunScreenState extends State<RunScreen> {
 
     _finalizeActiveDurationSegment();
     _timer?.cancel();
+    unawaited(_capturePauseStartStepCount());
 
     setState(() {
       _elapsedSeconds = _activeDuration.inSeconds;
@@ -222,6 +240,7 @@ class _RunScreenState extends State<RunScreen> {
       return;
     }
 
+    unawaited(_capturePausedStepOffset());
     setState(() {
       _lastResumeTime = _now();
       _skipDistanceForNextAcceptedPoint = true;
@@ -230,6 +249,74 @@ class _RunScreenState extends State<RunScreen> {
       _errorMessage = null;
     });
     _startTimer();
+  }
+
+  Future<void> _refreshAppStepCount() async {
+    final startTime = _startTime;
+    if (startTime == null || !_isRunning || _isRefreshingStepCount) {
+      return;
+    }
+
+    _isRefreshingStepCount = true;
+    try {
+      final rawStepCount = await _stepClient.currentAppStepCount(
+        startTime: startTime,
+      );
+      if (!mounted || rawStepCount == null) {
+        return;
+      }
+
+      setState(() {
+        _appStepCount = _activeAppStepCount(rawStepCount);
+      });
+    } finally {
+      _isRefreshingStepCount = false;
+    }
+  }
+
+  Future<void> _capturePauseStartStepCount() async {
+    final startTime = _startTime;
+    if (startTime == null) {
+      return;
+    }
+
+    final rawStepCount = await _stepClient.currentAppStepCount(
+      startTime: startTime,
+    );
+    if (!mounted || rawStepCount == null || !_isPaused) {
+      return;
+    }
+
+    setState(() {
+      _pauseStartRawAppStepCount = rawStepCount;
+      _appStepCount = _activeAppStepCount(rawStepCount);
+    });
+  }
+
+  Future<void> _capturePausedStepOffset() async {
+    final startTime = _startTime;
+    final pauseStartRawAppStepCount = _pauseStartRawAppStepCount;
+    if (startTime == null || pauseStartRawAppStepCount == null) {
+      return;
+    }
+
+    final rawStepCount = await _stepClient.currentAppStepCount(
+      startTime: startTime,
+    );
+    if (!mounted || rawStepCount == null) {
+      return;
+    }
+
+    final pausedStepCount = max(0, rawStepCount - pauseStartRawAppStepCount);
+    setState(() {
+      _pausedAppStepCountOffset += pausedStepCount;
+      _pauseStartRawAppStepCount = null;
+      _appStepCount = _activeAppStepCount(rawStepCount);
+    });
+  }
+
+  int _activeAppStepCount(int rawStepCount) {
+    return max(0, rawStepCount - _pausedAppStepCountOffset);
   }
 
   void _finalizeActiveDurationSegment() {
@@ -597,6 +684,11 @@ class _RunScreenState extends State<RunScreen> {
     });
 
     try {
+      final stepFinishSnapshot = await _stepClient.finishRun(
+        startTime: startTime,
+        endTime: endTime,
+      );
+      final appStepCount = _finalAppStepCount(stepFinishSnapshot);
       final savedRun = await _runApiService.createRun(
         CreateRunRequest(
           startTime: startTime,
@@ -604,6 +696,11 @@ class _RunScreenState extends State<RunScreen> {
           distanceMeters: _distanceMeters,
           durationSeconds: durationSeconds,
           averagePaceSecondsPerKm: averagePaceSecondsPerKm,
+          appStepCount: appStepCount,
+          healthKitStartStepCount: _healthKitStartStepCount,
+          healthKitEndStepCount: stepFinishSnapshot.healthKitEndStepCount,
+          healthKitUpdateLagSeconds:
+              stepFinishSnapshot.healthKitUpdateLagSeconds,
           routePoints: List.unmodifiable(_routePoints),
         ),
       );
@@ -615,6 +712,7 @@ class _RunScreenState extends State<RunScreen> {
       setState(() {
         _savedRun = savedRun;
         _distanceMeters = savedRun.distanceMeters;
+        _appStepCount = savedRun.appStepCount;
         _trackingState = RunTrackingState.completed;
         _gpsDetailMessage = 'Run saved';
       });
@@ -635,6 +733,15 @@ class _RunScreenState extends State<RunScreen> {
     return _routePoints.length >= 2 &&
         durationSeconds >= _minimumDurationSeconds &&
         _distanceMeters > 0;
+  }
+
+  int? _finalAppStepCount(RunStepFinishSnapshot stepFinishSnapshot) {
+    final rawStepCount = stepFinishSnapshot.appStepCount;
+    if (rawStepCount == null) {
+      return _appStepCount;
+    }
+
+    return _activeAppStepCount(rawStepCount);
   }
 
   List<RoutePointRequest> _buildFakeRoutePoints({
@@ -733,6 +840,9 @@ class _RunScreenState extends State<RunScreen> {
                       displayedDistanceMeters,
                     ),
                     paceText: paceText,
+                    stepText: _formatStepCount(
+                      _savedRun?.appStepCount ?? _appStepCount,
+                    ),
                   ),
                   const SizedBox(height: 24),
                   _GpsStatus(
@@ -822,6 +932,10 @@ class _RunScreenState extends State<RunScreen> {
       GpsSignalStatus.weak => 'Weak signal, but you can start.',
       GpsSignalStatus.searching || GpsSignalStatus.good => null,
     };
+  }
+
+  String _formatStepCount(int? stepCount) {
+    return stepCount?.toString() ?? '--';
   }
 }
 
@@ -1003,28 +1117,44 @@ class _RunControls extends StatelessWidget {
 }
 
 class _RunMetrics extends StatelessWidget {
-  const _RunMetrics({required this.distanceText, required this.paceText});
+  const _RunMetrics({
+    required this.distanceText,
+    required this.paceText,
+    required this.stepText,
+  });
 
   final String distanceText;
   final String paceText;
+  final String stepText;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
       children: [
-        Expanded(
+        FractionallySizedBox(
+          widthFactor: 0.47,
           child: _MetricTile(
             label: 'Distance',
             value: distanceText,
             valueKey: const Key('run-distance'),
           ),
         ),
-        const SizedBox(width: 12),
-        Expanded(
+        FractionallySizedBox(
+          widthFactor: 0.47,
           child: _MetricTile(
             label: 'Pace',
             value: paceText,
             valueKey: const Key('run-pace'),
+          ),
+        ),
+        FractionallySizedBox(
+          widthFactor: 0.47,
+          child: _MetricTile(
+            label: 'Momentum steps',
+            value: stepText,
+            valueKey: const Key('run-app-steps'),
           ),
         ),
       ],
@@ -1304,6 +1434,22 @@ class _RunSummary extends StatelessWidget {
               label: 'Average pace',
               value: RunFormatters.pace(run.averagePaceSecondsPerKm),
             ),
+            if (run.appStepCount != null)
+              _SummaryRow(
+                label: 'Momentum steps',
+                value: run.appStepCount.toString(),
+              ),
+            if (run.healthKitStepCount != null)
+              _SummaryRow(
+                label: 'Apple tracked',
+                value: run.healthKitStepCount.toString(),
+              ),
+            if (run.healthKitUpdateLagSeconds != null)
+              _SummaryRow(
+                label: 'Health update',
+                value:
+                    'Apple Health checked again after ${run.healthKitUpdateLagSeconds} sec.',
+              ),
             _SummaryRow(
               label: 'Route points',
               value: run.routePoints.length.toString(),

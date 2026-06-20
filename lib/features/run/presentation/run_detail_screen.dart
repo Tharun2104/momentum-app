@@ -101,6 +101,22 @@ class _RunDetailContent extends StatelessWidget {
               label: 'Average pace',
               value: RunFormatters.pace(run.averagePaceSecondsPerKm),
             ),
+            if (run.appStepCount != null)
+              _DetailRow(
+                label: 'Momentum steps',
+                value: run.appStepCount.toString(),
+              ),
+            if (run.healthKitStepCount != null)
+              _DetailRow(
+                label: 'Apple tracked',
+                value: run.healthKitStepCount.toString(),
+              ),
+            if (run.healthKitUpdateLagSeconds != null)
+              _DetailRow(
+                label: 'Health update',
+                value:
+                    'Apple Health checked again after ${run.healthKitUpdateLagSeconds} sec.',
+              ),
             _DetailRow(
               label: 'Route points',
               value: run.routePoints.length.toString(),
