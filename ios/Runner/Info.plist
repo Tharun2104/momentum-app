@@ -26,14 +26,21 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Momentum uses your location while you run to track your route, distance, and pace.</string>
-	<key>NSMotionUsageDescription</key>
-	<string>Momentum uses motion data to count your steps during runs.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Momentum reads your steps, walking distance, and active calories to show today's fitness summary.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Momentum does not write health data yet.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Momentum connects to your local development backend while testing on this iPhone.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Momentum uses your location while you run to track your route, distance, and pace.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Momentum uses motion data to count your steps during runs.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

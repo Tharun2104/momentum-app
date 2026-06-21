@@ -3,22 +3,28 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../../core/config/app_config.dart';
+import '../../auth/data/token_storage.dart';
 import '../models/create_run_request.dart';
 import '../models/run_response.dart';
 
 class RunApiService {
-  RunApiService({http.Client? client, String? baseUrl})
-    : _client = client ?? http.Client(),
-      _baseUrl = baseUrl ?? AppConfig.baseUrl;
+  RunApiService({
+    http.Client? client,
+    String? baseUrl,
+    TokenStorage? tokenStorage,
+  }) : _client = client ?? http.Client(),
+       _baseUrl = baseUrl ?? AppConfig.baseUrl,
+       _tokenStorage = tokenStorage ?? TokenStorage();
 
   final http.Client _client;
   final String _baseUrl;
+  final TokenStorage _tokenStorage;
 
   Future<RunResponse> createRun(CreateRunRequest request) async {
     final uri = Uri.parse('$_baseUrl/api/runs');
     final response = await _client.post(
       uri,
-      headers: const {'Content-Type': 'application/json'},
+      headers: await _headers(),
       body: jsonEncode(request.toJson()),
     );
 
@@ -33,7 +39,7 @@ class RunApiService {
 
   Future<List<RunResponse>> getRuns() async {
     final uri = Uri.parse('$_baseUrl/api/runs');
-    final response = await _client.get(uri);
+    final response = await _client.get(uri, headers: await _headers());
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final runsJson = jsonDecode(response.body) as List<dynamic>;
@@ -47,7 +53,7 @@ class RunApiService {
 
   Future<RunResponse> getRunById(int id) async {
     final uri = Uri.parse('$_baseUrl/api/runs/$id');
-    final response = await _client.get(uri);
+    final response = await _client.get(uri, headers: await _headers());
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return RunResponse.fromJson(
@@ -60,13 +66,21 @@ class RunApiService {
 
   Future<void> deleteRun(int id) async {
     final uri = Uri.parse('$_baseUrl/api/runs/$id');
-    final response = await _client.delete(uri);
+    final response = await _client.delete(uri, headers: await _headers());
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return;
     }
 
     throw Exception(_buildErrorMessage(response, action: 'Delete run'));
+  }
+
+  Future<Map<String, String>> _headers() async {
+    final token = await _tokenStorage.readToken();
+    return {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
   }
 
   String _buildErrorMessage(

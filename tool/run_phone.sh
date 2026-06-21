@@ -9,6 +9,10 @@ if [[ -z "${api_host}" ]]; then
 fi
 
 if [[ -z "${api_host}" ]]; then
+  api_host="$(ifconfig en0 2>/dev/null | awk '/inet / {print $2; exit}')"
+fi
+
+if [[ -z "${api_host}" ]]; then
   echo "Could not detect your Mac Wi-Fi IP. Set API_HOST, for example:"
   echo "API_HOST=192.168.1.9 ./tool/run_phone.sh"
   exit 1
@@ -17,5 +21,6 @@ fi
 api_base_url="${API_BASE_URL:-http://${api_host}:8080}"
 
 flutter run \
+  --release \
   -d "${device_id}" \
   --dart-define="API_BASE_URL=${api_base_url}"

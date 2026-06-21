@@ -3,8 +3,10 @@ import 'dart:collection';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
+import 'package:momentum_app/core/navigation/app_router.dart';
 import 'package:momentum_app/features/fitness/data/fitness_data_client.dart';
 import 'package:momentum_app/features/fitness/models/fitness_summary.dart';
 import 'package:momentum_app/features/fitness/presentation/fitness_screen.dart';
@@ -19,31 +21,24 @@ import 'package:momentum_app/features/run/presentation/run_screen.dart';
 import 'package:momentum_app/main.dart';
 
 void main() {
-  testWidgets('opens the run screen from home', (tester) async {
-    await tester.pumpWidget(const MomentumApp());
-
-    expect(find.text('Momentum'), findsWidgets);
-    expect(find.text('Track your run with focus'), findsOneWidget);
-    expect(find.text('Run'), findsOneWidget);
-    expect(find.text('Fitness'), findsOneWidget);
-    expect(find.text('History'), findsOneWidget);
-
-    await tester.tap(find.text('Run'));
+  testWidgets('shows login before app content', (tester) async {
+    await tester.pumpWidget(const ProviderScope(child: MomentumApp()));
     await tester.pumpAndSettle();
 
-    expect(find.text('00:00'), findsOneWidget);
-    expect(find.text('0.00 km'), findsOneWidget);
-    expect(find.text('-- /km'), findsOneWidget);
-    expect(find.byKey(const Key('gps-status')), findsOneWidget);
-    expect(
-      find.text('Map will appear when GPS tracking starts.'),
-      findsOneWidget,
-    );
-    expect(find.text('Start'), findsOneWidget);
+    expect(find.text('Momentum'), findsWidgets);
+    expect(find.text('Track your life with focus'), findsOneWidget);
+    expect(find.text('Sign in'), findsOneWidget);
   });
 
   testWidgets('opens fitness from home', (tester) async {
-    await tester.pumpWidget(const MomentumApp());
+    await tester.pumpWidget(
+      MaterialApp.router(
+        routerConfig: createAppRouter(
+          isAuthenticated: true,
+          isCheckingAuth: false,
+        ),
+      ),
+    );
 
     await tester.tap(find.text('Fitness'));
     await tester.pumpAndSettle();

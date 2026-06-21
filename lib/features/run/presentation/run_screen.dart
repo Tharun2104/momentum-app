@@ -817,7 +817,22 @@ class _RunScreenState extends State<RunScreen> {
     final canStart = kIsWeb || _gpsSignalStatus != GpsSignalStatus.dead;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Run')),
+      appBar: AppBar(
+        title: const Text('Run'),
+        actions: [
+          IconButton(
+            tooltip: 'Run history',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const RunHistoryScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.history_rounded),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(

@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
-
-import '../features/fitness/presentation/fitness_screen.dart';
-import '../features/run/presentation/run_history_screen.dart';
-import '../features/run/presentation/run_screen.dart';
+import 'package:go_router/go_router.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -10,7 +7,16 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Momentum')),
+      appBar: AppBar(
+        title: const Text('Momentum'),
+        actions: [
+          IconButton(
+            tooltip: 'Profile',
+            onPressed: () => context.push('/profile'),
+            icon: const Icon(Icons.account_circle_rounded),
+          ),
+        ],
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480),
@@ -27,42 +33,24 @@ class HomeScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Track your run with focus',
+                  'Track your life with focus',
                   style: Theme.of(context).textTheme.bodyLarge,
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 32),
                 FilledButton(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const RunScreen(),
-                      ),
-                    );
-                  },
+                  onPressed: () => context.push('/run'),
                   child: const Text('Run'),
                 ),
                 const SizedBox(height: 12),
                 FilledButton.tonal(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const FitnessScreen(),
-                      ),
-                    );
-                  },
-                  child: const Text('Fitness'),
+                  onPressed: () => context.push('/finance'),
+                  child: const Text('Money'),
                 ),
                 const SizedBox(height: 12),
-                OutlinedButton(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const RunHistoryScreen(),
-                      ),
-                    );
-                  },
-                  child: const Text('History'),
+                FilledButton.tonal(
+                  onPressed: () => context.push('/fitness'),
+                  child: const Text('Fitness'),
                 ),
               ],
             ),
