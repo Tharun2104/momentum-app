@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../../core/config/app_config.dart';
+import '../../../core/network/api_error.dart';
 import '../domain/auth_user.dart';
 import 'token_storage.dart';
 
@@ -28,26 +29,34 @@ class AuthRepository {
     required String email,
     required String password,
   }) async {
-    final response = await _dio.post<Map<String, dynamic>>(
-      '/auth/register',
-      data: {'name': name, 'email': email, 'password': password},
-    );
-    final session = AuthSession.fromJson(response.data!);
-    await _tokenStorage.saveToken(session.accessToken);
-    return session;
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/auth/register',
+        data: {'name': name, 'email': email, 'password': password},
+      );
+      final session = AuthSession.fromJson(response.data!);
+      await _tokenStorage.saveToken(session.accessToken);
+      return session;
+    } catch (error) {
+      throw AuthException(apiErrorMessage(error, fallback: 'Sign-up failed.'));
+    }
   }
 
   Future<AuthSession> login({
     required String email,
     required String password,
   }) async {
-    final response = await _dio.post<Map<String, dynamic>>(
-      '/auth/login',
-      data: {'email': email, 'password': password},
-    );
-    final session = AuthSession.fromJson(response.data!);
-    await _tokenStorage.saveToken(session.accessToken);
-    return session;
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/auth/login',
+        data: {'email': email, 'password': password},
+      );
+      final session = AuthSession.fromJson(response.data!);
+      await _tokenStorage.saveToken(session.accessToken);
+      return session;
+    } catch (error) {
+      throw AuthException(apiErrorMessage(error, fallback: 'Sign-in failed.'));
+    }
   }
 
   Future<AuthUser> me() async {

@@ -10,6 +10,10 @@ import 'package:momentum_app/core/navigation/app_router.dart';
 import 'package:momentum_app/features/fitness/data/fitness_data_client.dart';
 import 'package:momentum_app/features/fitness/models/fitness_summary.dart';
 import 'package:momentum_app/features/fitness/presentation/fitness_screen.dart';
+import 'package:momentum_app/features/friends/data/friends_repository.dart';
+import 'package:momentum_app/features/friends/domain/friend_request.dart';
+import 'package:momentum_app/features/friends/domain/friend_user.dart';
+import 'package:momentum_app/features/friends/presentation/friends_providers.dart';
 import 'package:momentum_app/features/run/data/run_api_service.dart';
 import 'package:momentum_app/features/run/models/create_run_request.dart';
 import 'package:momentum_app/features/run/models/route_point_response.dart';
@@ -32,10 +36,15 @@ void main() {
 
   testWidgets('opens fitness from home', (tester) async {
     await tester.pumpWidget(
-      MaterialApp.router(
-        routerConfig: createAppRouter(
-          isAuthenticated: true,
-          isCheckingAuth: false,
+      ProviderScope(
+        overrides: [
+          friendsRepositoryProvider.overrideWithValue(_FakeFriendsRepository()),
+        ],
+        child: MaterialApp.router(
+          routerConfig: createAppRouter(
+            isAuthenticated: true,
+            isCheckingAuth: false,
+          ),
         ),
       ),
     );
@@ -626,6 +635,37 @@ class _FakeRunStepClient implements RunStepClient {
     required DateTime endTime,
   }) async {
     return finishSnapshot;
+  }
+}
+
+class _FakeFriendsRepository implements FriendsRepository {
+  @override
+  Future<FriendRequest> acceptRequest(int requestId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<FriendUser>> getFriends() async => [];
+
+  @override
+  Future<List<FriendRequest>> getIncomingRequests() async => [];
+
+  @override
+  Future<List<FriendRequest>> getOutgoingRequests() async => [];
+
+  @override
+  Future<FriendRequest> rejectRequest(int requestId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<FriendRequest> sendRequest(int receiverUserId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<FriendUser> searchUser(String email) {
+    throw UnimplementedError();
   }
 }
 

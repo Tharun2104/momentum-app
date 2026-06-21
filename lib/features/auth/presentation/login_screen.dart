@@ -82,6 +82,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           : null,
                       onFieldSubmitted: (_) => _login(),
                     ),
+                    if (authState.errorMessage != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        authState.errorMessage!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 20),
                     FilledButton(
                       onPressed: authState.isLoading ? null : _login,
@@ -123,9 +133,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       }
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Sign-in failed: ${error.toString()}')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
     }
   }
 }

@@ -12,6 +12,10 @@ import '../../features/finance/presentation/monthly_summary_screen.dart';
 import '../../features/finance/presentation/payment_method_form_screen.dart';
 import '../../features/finance/presentation/payment_method_list_screen.dart';
 import '../../features/fitness/presentation/fitness_screen.dart';
+import '../../features/friends/presentation/friends_screen.dart';
+import '../../features/friends/presentation/incoming_requests_screen.dart';
+import '../../features/friends/presentation/outgoing_requests_screen.dart';
+import '../../features/friends/presentation/search_user_screen.dart';
 import '../../features/run/presentation/run_history_screen.dart';
 import '../../features/run/presentation/run_screen.dart';
 import '../../screens/home_screen.dart';
@@ -55,6 +59,24 @@ GoRouter createAppRouter({
       GoRoute(
         path: '/history',
         builder: (context, state) => const RunHistoryScreen(),
+      ),
+      GoRoute(
+        path: '/friends',
+        builder: (context, state) => const FriendsScreen(),
+        routes: [
+          GoRoute(
+            path: 'search',
+            builder: (context, state) => const SearchUserScreen(),
+          ),
+          GoRoute(
+            path: 'incoming',
+            builder: (context, state) => const IncomingRequestsScreen(),
+          ),
+          GoRoute(
+            path: 'outgoing',
+            builder: (context, state) => const OutgoingRequestsScreen(),
+          ),
+        ],
       ),
       GoRoute(
         path: '/finance',
