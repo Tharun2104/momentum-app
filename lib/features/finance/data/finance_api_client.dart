@@ -5,6 +5,7 @@ import '../domain/expense_write_request.dart';
 import '../domain/finance_summaries.dart';
 import '../domain/payment_method.dart';
 import '../domain/payment_method_write_request.dart';
+import '../domain/shared_expense.dart';
 import 'finance_api_exception.dart';
 
 class FinanceApiClient {
@@ -166,6 +167,54 @@ class FinanceApiClient {
                 PaymentMethodSummary.fromJson(json as Map<String, dynamic>),
           )
           .toList();
+    });
+  }
+
+  Future<SplitsSummary> getSplitsSummary() async {
+    return mapFinanceApiErrors(() async {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/api/splits/summary',
+      );
+
+      return SplitsSummary.fromJson(response.data!);
+    });
+  }
+
+  Future<List<FriendBalance>> getFriendBalances() async {
+    return mapFinanceApiErrors(() async {
+      final response = await _dio.get<List<dynamic>>(
+        '/api/splits/friend-balances',
+      );
+
+      return response.data!
+          .map((json) => FriendBalance.fromJson(json as Map<String, dynamic>))
+          .toList();
+    });
+  }
+
+  Future<List<SharedExpense>> getRecentSplits() async {
+    return mapFinanceApiErrors(() async {
+      final response = await _dio.get<List<dynamic>>('/api/splits/recent');
+
+      return response.data!
+          .map((json) => SharedExpense.fromJson(json as Map<String, dynamic>))
+          .toList();
+    });
+  }
+
+  Future<SharedExpense> getSharedExpense(int id) async {
+    return mapFinanceApiErrors(() async {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/api/shared-expenses/$id',
+      );
+
+      return SharedExpense.fromJson(response.data!);
+    });
+  }
+
+  Future<void> deleteSharedExpense(int id) async {
+    return mapFinanceApiErrors(() async {
+      await _dio.delete<void>('/api/shared-expenses/$id');
     });
   }
 

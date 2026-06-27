@@ -3,13 +3,14 @@ import '../domain/friend_user.dart';
 import 'friends_api_client.dart';
 
 abstract class FriendsRepository {
-  Future<FriendUser> searchUser(String email);
+  Future<FriendUser> searchUser(String query);
   Future<FriendRequest> sendRequest(int receiverUserId);
   Future<List<FriendRequest>> getIncomingRequests();
   Future<List<FriendRequest>> getOutgoingRequests();
   Future<FriendRequest> acceptRequest(int requestId);
   Future<FriendRequest> rejectRequest(int requestId);
   Future<List<FriendUser>> getFriends();
+  Future<void> deleteFriend(int friendUserId);
 }
 
 class DioFriendsRepository implements FriendsRepository {
@@ -18,7 +19,7 @@ class DioFriendsRepository implements FriendsRepository {
   final FriendsApiClient _client;
 
   @override
-  Future<FriendUser> searchUser(String email) => _client.searchUser(email);
+  Future<FriendUser> searchUser(String query) => _client.searchUser(query);
 
   @override
   Future<FriendRequest> sendRequest(int receiverUserId) =>
@@ -42,4 +43,8 @@ class DioFriendsRepository implements FriendsRepository {
 
   @override
   Future<List<FriendUser>> getFriends() => _client.getFriends();
+
+  @override
+  Future<void> deleteFriend(int friendUserId) =>
+      _client.deleteFriend(friendUserId);
 }

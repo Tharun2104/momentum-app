@@ -648,6 +648,9 @@ class _FakeFriendsRepository implements FriendsRepository {
   Future<List<FriendUser>> getFriends() async => [];
 
   @override
+  Future<void> deleteFriend(int friendUserId) async {}
+
+  @override
   Future<List<FriendRequest>> getIncomingRequests() async => [];
 
   @override

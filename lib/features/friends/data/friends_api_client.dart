@@ -8,10 +8,12 @@ class FriendsApiClient {
 
   final Dio _dio;
 
-  Future<FriendUser> searchUser(String email) async {
+  Future<FriendUser> searchUser(String query) async {
+    final trimmed = query.trim();
+    final userId = int.tryParse(trimmed);
     final response = await _dio.get<Map<String, dynamic>>(
       '/api/users/search',
-      queryParameters: {'email': email},
+      queryParameters: userId == null ? {'email': trimmed} : {'id': userId},
     );
     return FriendUser.fromJson(response.data!);
   }
@@ -61,5 +63,9 @@ class FriendsApiClient {
     return response.data!
         .map((json) => FriendUser.fromJson(json as Map<String, dynamic>))
         .toList();
+  }
+
+  Future<void> deleteFriend(int friendUserId) async {
+    await _dio.delete<void>('/api/friends/$friendUserId');
   }
 }

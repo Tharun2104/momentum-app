@@ -3,6 +3,7 @@ import '../domain/expense_write_request.dart';
 import '../domain/finance_summaries.dart';
 import '../domain/payment_method.dart';
 import '../domain/payment_method_write_request.dart';
+import '../domain/shared_expense.dart';
 import 'finance_api_client.dart';
 
 abstract class FinanceRepository {
@@ -22,6 +23,11 @@ abstract class FinanceRepository {
   Future<MonthlySummary> getMonthlySummary(DateTime month);
   Future<List<CategorySummary>> getCategorySummary(DateTime month);
   Future<List<PaymentMethodSummary>> getPaymentMethodSummary(DateTime month);
+  Future<SplitsSummary> getSplitsSummary();
+  Future<List<FriendBalance>> getFriendBalances();
+  Future<List<SharedExpense>> getRecentSplits();
+  Future<SharedExpense> getSharedExpense(int id);
+  Future<void> deleteSharedExpense(int id);
 }
 
 class DioFinanceRepository implements FinanceRepository {
@@ -80,4 +86,21 @@ class DioFinanceRepository implements FinanceRepository {
   @override
   Future<List<PaymentMethodSummary>> getPaymentMethodSummary(DateTime month) =>
       _client.getPaymentMethodSummary(month);
+
+  @override
+  Future<SplitsSummary> getSplitsSummary() => _client.getSplitsSummary();
+
+  @override
+  Future<List<FriendBalance>> getFriendBalances() =>
+      _client.getFriendBalances();
+
+  @override
+  Future<List<SharedExpense>> getRecentSplits() => _client.getRecentSplits();
+
+  @override
+  Future<SharedExpense> getSharedExpense(int id) =>
+      _client.getSharedExpense(id);
+
+  @override
+  Future<void> deleteSharedExpense(int id) => _client.deleteSharedExpense(id);
 }

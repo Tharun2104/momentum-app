@@ -7,13 +7,20 @@ import '../domain/expense.dart';
 import '../domain/expense_category.dart';
 import '../domain/expense_write_request.dart';
 import '../domain/payment_method.dart';
+import '../../friends/domain/friend_user.dart';
+import '../../friends/presentation/friends_providers.dart';
 import 'finance_formatters.dart';
 import 'finance_providers.dart';
 
 class ExpenseFormScreen extends ConsumerStatefulWidget {
-  const ExpenseFormScreen({this.expenseId, super.key});
+  const ExpenseFormScreen({
+    this.expenseId,
+    this.startWithSplit = false,
+    super.key,
+  });
 
   final int? expenseId;
+  final bool startWithSplit;
 
   @override
   ConsumerState<ExpenseFormScreen> createState() => _ExpenseFormScreenState();
@@ -27,10 +34,18 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
   ExpenseCategory? _category = ExpenseCategory.food;
   int? _paymentMethodId;
   DateTime _expenseDate = DateTime.now();
+  bool _splitEnabled = false;
+  final Set<int> _splitFriendUserIds = {};
   bool _saving = false;
   bool _seeded = false;
 
   bool get _isEditing => widget.expenseId != null;
+
+  @override
+  void initState() {
+    super.initState();
+    _splitEnabled = widget.startWithSplit && !_isEditing;
+  }
 
   @override
   void dispose() {
@@ -43,6 +58,7 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
   @override
   Widget build(BuildContext context) {
     final paymentMethods = ref.watch(paymentMethodsProvider);
+    final friends = ref.watch(friendsProvider);
     final existingExpense = widget.expenseId == null
         ? const AsyncValue<Expense?>.data(null)
         : ref
@@ -90,6 +106,11 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
                     style: Theme.of(context).textTheme.displaySmall?.copyWith(
                       fontWeight: FontWeight.w900,
                     ),
+                    onChanged: (_) {
+                      if (_splitEnabled) {
+                        setState(() {});
+                      }
+                    },
                     decoration: const InputDecoration(
                       prefixText: r'$ ',
                       labelText: 'Amount',
@@ -166,6 +187,34 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
                       prefixIcon: Icon(Icons.notes_rounded),
                     ),
                   ),
+                  if (_isEditing && expense?.split != null) ...[
+                    const SizedBox(height: 20),
+                    _ExpenseSplitHistoryCard(split: expense!.split!),
+                  ],
+                  if (!_isEditing) ...[
+                    const SizedBox(height: 20),
+                    friends.when(
+                      data: (acceptedFriends) => _SplitSection(
+                        amount: double.tryParse(_amountController.text) ?? 0,
+                        enabled: _splitEnabled,
+                        selectedFriendUserIds: _splitFriendUserIds,
+                        friends: acceptedFriends,
+                        onEnabledChanged: (value) => setState(() {
+                          _splitEnabled = value;
+                          if (!value) {
+                            _splitFriendUserIds.clear();
+                          }
+                        }),
+                        onFriendToggled: (id) => setState(() {
+                          if (!_splitFriendUserIds.remove(id)) {
+                            _splitFriendUserIds.add(id);
+                          }
+                        }),
+                      ),
+                      loading: () => const LinearProgressIndicator(),
+                      error: (error, _) => Text(error.toString()),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -217,6 +266,14 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
     if (!_formKey.currentState!.validate() || _category == null) {
       return;
     }
+    if (_paymentMethodId == null) {
+      _showError('Select a payment method');
+      return;
+    }
+    if (_splitEnabled && _splitFriendUserIds.isEmpty) {
+      _showError('Select at least one friend to split with');
+      return;
+    }
     setState(() => _saving = true);
     final request = ExpenseWriteRequest(
       amount: double.parse(_amountController.text),
@@ -229,6 +286,15 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
       notes: _notesController.text.trim().isEmpty
           ? null
           : _notesController.text.trim(),
+      split: _splitEnabled
+          ? ExpenseSplitWriteRequest(
+              enabled: true,
+              friendUserId: _splitFriendUserIds.isEmpty
+                  ? null
+                  : _splitFriendUserIds.first,
+              friendUserIds: _splitFriendUserIds.toList(),
+            )
+          : null,
     );
     final repository = ref.read(financeRepositoryProvider);
     try {
@@ -250,6 +316,12 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
         setState(() => _saving = false);
       }
     }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _delete() async {
@@ -278,6 +350,211 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
     if (!mounted) return;
     refreshFinanceProviders(ref);
     context.pop();
+  }
+}
+
+class _SplitSection extends StatelessWidget {
+  const _SplitSection({
+    required this.amount,
+    required this.enabled,
+    required this.selectedFriendUserIds,
+    required this.friends,
+    required this.onEnabledChanged,
+    required this.onFriendToggled,
+  });
+
+  final double amount;
+  final bool enabled;
+  final Set<int> selectedFriendUserIds;
+  final List<FriendUser> friends;
+  final ValueChanged<bool> onEnabledChanged;
+  final ValueChanged<int> onFriendToggled;
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedFriends = _selectedFriends();
+    final memberCount = selectedFriends.length + 1;
+    final share = amount > 0 && selectedFriends.isNotEmpty
+        ? amount / memberCount
+        : 0.0;
+
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Split',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                Switch(value: enabled, onChanged: onEnabledChanged),
+              ],
+            ),
+            const SizedBox(height: 2),
+            const Text('Split equally with friends'),
+            if (enabled) ...[
+              const SizedBox(height: 14),
+              if (friends.isEmpty)
+                const Text('Add friends first from Profile.')
+              else
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: friends
+                      .map(
+                        (friend) => FilterChip(
+                          selected: selectedFriendUserIds.contains(friend.id),
+                          avatar: const Icon(Icons.person_rounded, size: 18),
+                          label: Text(friend.name),
+                          onSelected: (_) => onFriendToggled(friend.id),
+                        ),
+                      )
+                      .toList(),
+                ),
+              if (friends.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.primaryContainer.withValues(alpha: 0.45),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      children: [
+                        _SplitPreviewRow(label: 'Total', value: money(amount)),
+                        _SplitPreviewRow(
+                          label: 'People',
+                          value: memberCount.toString(),
+                        ),
+                        _SplitPreviewRow(
+                          label: 'Your share',
+                          value: money(share),
+                        ),
+                        _SplitPreviewRow(
+                          label: 'Each friend',
+                          value: money(share),
+                        ),
+                        const Divider(height: 20),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            selectedFriends.isEmpty
+                                ? 'Select friends to preview who owes what'
+                                : _previewText(selectedFriends, share),
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<FriendUser> _selectedFriends() {
+    return friends
+        .where((friend) => selectedFriendUserIds.contains(friend.id))
+        .toList();
+  }
+
+  String _previewText(List<FriendUser> selectedFriends, double share) {
+    if (selectedFriends.length == 1) {
+      return '${selectedFriends.single.name} owes ${money(share)}';
+    }
+    return '${selectedFriends.map((friend) => friend.name).join(', ')} owe ${money(share)} each';
+  }
+}
+
+class _ExpenseSplitHistoryCard extends StatelessWidget {
+  const _ExpenseSplitHistoryCard({required this.split});
+
+  final ExpenseSplitSummary split;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.call_split_rounded, color: colorScheme.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Split with ${split.friendName}',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _SplitPreviewRow(
+              label: 'Original total',
+              value: money(split.totalAmount),
+            ),
+            _SplitPreviewRow(
+              label: 'Your expense',
+              value: money(split.currentUserShareAmount),
+            ),
+            _SplitPreviewRow(
+              label: 'You paid',
+              value: money(split.currentUserPaidAmount),
+            ),
+            const Divider(height: 20),
+            Text(
+              split.displayText,
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SplitPreviewRow extends StatelessWidget {
+  const _SplitPreviewRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Expanded(child: Text(label)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.w800)),
+        ],
+      ),
+    );
   }
 }
 

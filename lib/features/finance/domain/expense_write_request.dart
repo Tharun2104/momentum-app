@@ -8,6 +8,7 @@ class ExpenseWriteRequest {
     this.merchantName,
     this.paymentMethodId,
     this.notes,
+    this.split,
   });
 
   final double amount;
@@ -16,6 +17,7 @@ class ExpenseWriteRequest {
   final String? merchantName;
   final int? paymentMethodId;
   final String? notes;
+  final ExpenseSplitWriteRequest? split;
 
   Map<String, dynamic> toJson() {
     return {
@@ -25,6 +27,7 @@ class ExpenseWriteRequest {
       'paymentMethodId': paymentMethodId,
       'expenseDate': _dateOnly(expenseDate),
       'notes': notes,
+      if (split != null) 'split': split!.toJson(),
     };
   }
 
@@ -32,5 +35,28 @@ class ExpenseWriteRequest {
     final month = date.month.toString().padLeft(2, '0');
     final day = date.day.toString().padLeft(2, '0');
     return '${date.year}-$month-$day';
+  }
+}
+
+class ExpenseSplitWriteRequest {
+  const ExpenseSplitWriteRequest({
+    required this.enabled,
+    this.friendUserId,
+    this.friendUserIds = const [],
+    this.splitType = 'EQUAL',
+  });
+
+  final bool enabled;
+  final int? friendUserId;
+  final List<int> friendUserIds;
+  final String splitType;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'enabled': enabled,
+      'friendUserId': friendUserId,
+      'friendUserIds': friendUserIds,
+      'splitType': splitType,
+    };
   }
 }

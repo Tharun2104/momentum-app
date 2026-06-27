@@ -15,7 +15,7 @@ class SearchUserScreen extends ConsumerStatefulWidget {
 }
 
 class _SearchUserScreenState extends ConsumerState<SearchUserScreen> {
-  final _emailController = TextEditingController();
+  final _queryController = TextEditingController();
   FriendUser? _result;
   String? _message;
   bool _isSearching = false;
@@ -23,15 +23,15 @@ class _SearchUserScreenState extends ConsumerState<SearchUserScreen> {
 
   @override
   void dispose() {
-    _emailController.dispose();
+    _queryController.dispose();
     super.dispose();
   }
 
   Future<void> _search() async {
-    final email = _emailController.text.trim();
-    if (email.isEmpty) {
+    final query = _queryController.text.trim();
+    if (query.isEmpty) {
       setState(() {
-        _message = 'Enter an email address.';
+        _message = 'Enter a friend id or email.';
         _result = null;
       });
       return;
@@ -44,7 +44,7 @@ class _SearchUserScreenState extends ConsumerState<SearchUserScreen> {
     });
 
     try {
-      final user = await ref.read(friendsRepositoryProvider).searchUser(email);
+      final user = await ref.read(friendsRepositoryProvider).searchUser(query);
       if (!mounted) return;
       setState(() {
         _result = user;
@@ -52,7 +52,7 @@ class _SearchUserScreenState extends ConsumerState<SearchUserScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _message = 'No user found for $email.';
+        _message = 'No user found for $query.';
       });
     } finally {
       if (mounted) {
@@ -106,11 +106,11 @@ class _SearchUserScreenState extends ConsumerState<SearchUserScreen> {
           padding: const EdgeInsets.all(20),
           children: [
             TextField(
-              controller: _emailController,
-              keyboardType: TextInputType.emailAddress,
+              controller: _queryController,
+              keyboardType: TextInputType.text,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
-                labelText: 'Search by email',
+                labelText: 'Search by friend id or email',
                 suffixIcon: IconButton(
                   tooltip: 'Search',
                   onPressed: _isSearching ? null : _search,

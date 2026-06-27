@@ -1,11 +1,8 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/network/dio_provider.dart';
-import '../features/friends/presentation/friends_providers.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -17,23 +14,6 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   String? _backendStatus;
   bool _isCheckingBackend = false;
-  Timer? _requestBadgeTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _requestBadgeTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      if (mounted) {
-        ref.invalidate(incomingFriendRequestsProvider);
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _requestBadgeTimer?.cancel();
-    super.dispose();
-  }
 
   Future<void> _checkBackend() async {
     setState(() {
@@ -65,10 +45,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final incomingCount = ref
-        .watch(incomingFriendRequestsProvider)
-        .maybeWhen(data: (requests) => requests.length, orElse: () => 0);
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Momentum'),
@@ -112,25 +88,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
                 const SizedBox(height: 12),
                 FilledButton.tonal(
-                  onPressed: () => context.push('/fitness'),
-                  child: const Text('Fitness'),
+                  onPressed: () => context.push('/splits'),
+                  child: const Text('Splits'),
                 ),
                 const SizedBox(height: 12),
-                FilledButton.tonalIcon(
-                  onPressed: () async {
-                    await context.push('/friends');
-                    if (mounted) {
-                      ref.invalidate(incomingFriendRequestsProvider);
-                    }
-                  },
-                  icon: incomingCount > 0
-                      ? Badge.count(
-                          count: incomingCount,
-                          backgroundColor: Colors.red,
-                          child: const Icon(Icons.people_alt_rounded),
-                        )
-                      : const Icon(Icons.people_alt_rounded),
-                  label: const Text('Friends'),
+                FilledButton.tonal(
+                  onPressed: () => context.push('/fitness'),
+                  child: const Text('Fitness'),
                 ),
               ],
             ),

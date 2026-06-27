@@ -11,6 +11,8 @@ import '../../features/finance/presentation/expense_list_screen.dart';
 import '../../features/finance/presentation/monthly_summary_screen.dart';
 import '../../features/finance/presentation/payment_method_form_screen.dart';
 import '../../features/finance/presentation/payment_method_list_screen.dart';
+import '../../features/finance/presentation/shared_expense_detail_screen.dart';
+import '../../features/finance/presentation/splits_screen.dart';
 import '../../features/fitness/presentation/fitness_screen.dart';
 import '../../features/friends/presentation/friends_screen.dart';
 import '../../features/friends/presentation/incoming_requests_screen.dart';
@@ -132,6 +134,23 @@ GoRouter createAppRouter({
           GoRoute(
             path: 'summary',
             builder: (context, state) => const MonthlySummaryScreen(),
+          ),
+        ],
+      ),
+      GoRoute(
+        path: '/splits',
+        builder: (context, state) => const SplitsScreen(),
+        routes: [
+          GoRoute(
+            path: 'new',
+            builder: (context, state) =>
+                const ExpenseFormScreen(startWithSplit: true),
+          ),
+          GoRoute(
+            path: ':id',
+            builder: (context, state) => SharedExpenseDetailScreen(
+              sharedExpenseId: int.parse(state.pathParameters['id']!),
+            ),
           ),
         ],
       ),

@@ -101,8 +101,18 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
 
             return ListView.separated(
               padding: const EdgeInsets.all(16),
-              itemBuilder: (context, index) =>
-                  FriendUserCard(user: friends[index]),
+              itemBuilder: (context, index) {
+                final friend = friends[index];
+                return FriendUserCard(
+                  user: friend,
+                  trailing: IconButton(
+                    tooltip: 'Remove friend',
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () => _removeFriend(friend.id),
+                  ),
+                );
+              },
               separatorBuilder: (_, _) => const SizedBox(height: 12),
               itemCount: friends.length,
             );
@@ -110,5 +120,18 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _removeFriend(int friendUserId) async {
+    try {
+      await ref.read(friendsRepositoryProvider).deleteFriend(friendUserId);
+      if (!mounted) return;
+      refreshFriends(ref);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(apiErrorMessage(error))));
+    }
   }
 }

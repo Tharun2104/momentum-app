@@ -66,6 +66,20 @@ void main() {
     expect(repository.acceptedRequestIds, [10]);
     expect(repository.rejectedRequestIds, [11]);
   });
+
+  testWidgets('friends screen can remove an existing friend', (tester) async {
+    final repository = _FakeFriendsRepository(friends: [_userTwo]);
+
+    await tester.pumpWidget(
+      _testApp(repository: repository, child: const FriendsScreen()),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Remove friend'));
+    await tester.pumpAndSettle();
+
+    expect(repository.deletedFriendUserIds, [2]);
+  });
 }
 
 Widget _testApp({
@@ -92,6 +106,7 @@ class _FakeFriendsRepository implements FriendsRepository {
   final List<int> sentRequestUserIds = [];
   final List<int> acceptedRequestIds = [];
   final List<int> rejectedRequestIds = [];
+  final List<int> deletedFriendUserIds = [];
 
   @override
   Future<FriendRequest> acceptRequest(int requestId) async {
@@ -102,6 +117,12 @@ class _FakeFriendsRepository implements FriendsRepository {
 
   @override
   Future<List<FriendUser>> getFriends() async => friends;
+
+  @override
+  Future<void> deleteFriend(int friendUserId) async {
+    deletedFriendUserIds.add(friendUserId);
+    friends.removeWhere((friend) => friend.id == friendUserId);
+  }
 
   @override
   Future<List<FriendRequest>> getIncomingRequests() async => incomingRequests;

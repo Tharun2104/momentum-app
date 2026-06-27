@@ -7,6 +7,7 @@ import '../domain/expense.dart';
 import '../domain/expense_query.dart';
 import '../domain/finance_summaries.dart';
 import '../domain/payment_method.dart';
+import '../domain/shared_expense.dart';
 
 final selectedFinanceMonthProvider = StateProvider<DateTime>((ref) {
   final now = DateTime.now();
@@ -63,6 +64,25 @@ final paymentMethodSummaryProvider = FutureProvider<List<PaymentMethodSummary>>(
   },
 );
 
+final splitsSummaryProvider = FutureProvider<SplitsSummary>((ref) {
+  return ref.watch(financeRepositoryProvider).getSplitsSummary();
+});
+
+final friendBalancesProvider = FutureProvider<List<FriendBalance>>((ref) {
+  return ref.watch(financeRepositoryProvider).getFriendBalances();
+});
+
+final recentSplitsProvider = FutureProvider<List<SharedExpense>>((ref) {
+  return ref.watch(financeRepositoryProvider).getRecentSplits();
+});
+
+final sharedExpenseProvider = FutureProvider.family<SharedExpense, int>((
+  ref,
+  id,
+) {
+  return ref.watch(financeRepositoryProvider).getSharedExpense(id);
+});
+
 void refreshFinanceProviders(WidgetRef ref) {
   ref.invalidate(expensesProvider);
   ref.invalidate(filteredExpensesProvider);
@@ -70,4 +90,8 @@ void refreshFinanceProviders(WidgetRef ref) {
   ref.invalidate(monthlySummaryProvider);
   ref.invalidate(categorySummaryProvider);
   ref.invalidate(paymentMethodSummaryProvider);
+  ref.invalidate(splitsSummaryProvider);
+  ref.invalidate(friendBalancesProvider);
+  ref.invalidate(recentSplitsProvider);
+  ref.invalidate(sharedExpenseProvider);
 }
